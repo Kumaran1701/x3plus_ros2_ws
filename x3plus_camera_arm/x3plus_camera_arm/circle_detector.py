@@ -12,12 +12,23 @@ class x3plusCircleDetector(Node):
     def __init__(self):
         super().__init__('circle_detector_node')
 
+        self.depth_frame = None
+
         self.bridge = CvBridge()
         self.camera_arm_pub_ = self.create_publisher(Image, '/camera_arm/image_circle', 10)
-        self.camera_arm_sub_ = self.create_subscription(Image, '/camera_arm/image_raw', self.image_callback, 10)
+        self.depth_camera_pub_ = self.create_publisher(Image, '/camera_arm/depth_image', 10)
+        #self.camera_arm_sub_ = self.create_subscription(Image, '/camera_arm/image_raw', self.image_callback, 10)
+        self.camera_arm_sub_ = self.create_subscription(Image, '/camera/color/image_raw', self.image_callback, 10)
+        self.depth_camera_sub_ = self.create_subscription(Image, '/camera/depth/image_raw', self.depth_callback, 10)
 
+    def depth_callback(self, msg):
+        self.depth_frame = self.bridge.imgmsg_to_cv2(msg)
 
     def image_callback(self, msg):
+
+        if not self.depth_frame:
+            return
+        
         frame = self.bridge.imgmsg_to_cv2(msg)
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -31,23 +42,31 @@ class x3plusCircleDetector(Node):
             minDist=50,
             param1=50,
             param2=30,
-            minRadius=10,
-            maxRadius=100
+            minRadius=5,
+            maxRadius=80
         )
 
         if circles is not None:
             circles = np.uint16(np.around(circles))
 
-            for i in circles[0, :]:
-                cv2.circle(frame, (i[0], i[1]), i[2], (0, 255, 0), 2)
-                cv2.circle(frame, (i[0], i[1]), 2, (0, 0, 255), 3)
+            circle = circles[0][0]
+            cx = int(circle[0])
+            cy = int(circle[1])
+            r = int(circle[2])
+
+            cv2.circle(frame, (cx, cy), r, (0, 0, 255), 5)
+            cv2.circle(self.depth_frame, (cx, cy), r, (255), 5)
+        
+
 
         output = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
+        output_depth = self.bridge.cv2_to_imgmsg()
 
         output.header.stamp = msg.header.stamp
         output.header.frame_id = msg.header.frame_id
 
         self.camera_arm_pub_.publish(output)
+        self.depth_camera_pub_.publish()
 
 def main():
     rclpy.init()
