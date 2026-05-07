@@ -32,7 +32,7 @@ class x3plusDriver(Node):
 
     def timer_callback(self):
 
-        #self.get_logger().info(str(self.car.get_accelerometer_data()))
+        self.get_logger().info(str(self.car.get_accelerometer_data()))
 
 
 
