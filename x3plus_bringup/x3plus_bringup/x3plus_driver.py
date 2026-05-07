@@ -28,7 +28,7 @@ class x3plusDriver(Node):
 
         self.car.set_car_motion(vx, vy, angular)
 
-        self.get_logger().info(f"cmd_vel: {vx}, {vy}, {angular}")
+        #self.get_logger().info(f"cmd_vel: {vx}, {vy}, {angular}")
 
     def timer_callback(self):
 
