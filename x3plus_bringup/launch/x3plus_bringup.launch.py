@@ -14,6 +14,7 @@ def generate_launch_description():
         Command(['xacro ', urdf_file]),
         value_type=str
     )
+    
     driver_node = Node(
         package='x3plus_bringup',
         executable='x3plus_driver.py',
@@ -30,15 +31,7 @@ def generate_launch_description():
         output='screen'
     )
 
-    rviz_node = Node(
-        package='rviz2',
-        executable='rviz2',
-        output='screen'
-    )
-
-
     return LaunchDescription([
         driver_node,
         robot_state_publisher_node,
-        rviz_node,
     ])
