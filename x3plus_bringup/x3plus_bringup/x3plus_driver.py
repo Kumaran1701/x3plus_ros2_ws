@@ -62,7 +62,7 @@ class x3plusDriver(Node):
 
         self.x += (self.vx * math.cos(self.theta) - self.vy * math.sin(self.theta)) * dt
         self.y += (self.vx * math.sin(self.theta) + self.vy * math.cos(self.theta)) * dt
-        self.theta += self.wz * dt
+        self.theta += self.angular * dt
 
         t = TransformStamped()
 
@@ -97,7 +97,7 @@ class x3plusDriver(Node):
 
         odom.twist.twist.linear.x = self.vx
         odom.twist.twist.linear.y = self.vy
-        odom.twist.twist.angular.z = self.wz
+        odom.twist.twist.angular.z = self.angular
 
         self.odom_pub_.publish(odom)
 
@@ -105,13 +105,13 @@ class x3plusDriver(Node):
         lx = 0.12
         ly = 0.10
 
-        fl_vel = (self.vx - self.vy - (lx + ly) * self.wz) / r
+        fl_vel = (self.vx - self.vy - (lx + ly) * self.angular) / r
 
-        fr_vel = (self.vx + self.vy + (lx + ly) * self.wz) / r
+        fr_vel = (self.vx + self.vy + (lx + ly) * self.angular) / r
 
-        rl_vel = (self.vx + self.vy - (lx + ly) * self.wz) / r
+        rl_vel = (self.vx + self.vy - (lx + ly) * self.angular) / r
 
-        rr_vel = (self.vx - self.vy + (lx + ly) * self.wz) / r
+        rr_vel = (self.vx - self.vy + (lx + ly) * self.angular) / r
 
         self.fl_pos += fl_vel * dt
         self.fr_pos += fr_vel * dt
