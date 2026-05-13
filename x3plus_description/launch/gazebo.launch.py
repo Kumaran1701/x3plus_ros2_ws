@@ -10,7 +10,7 @@ def generate_launch_description():
 
     pkg_path = get_package_share_directory('x3plus_description')
 
-    default_rviz_config_path = pkg_path / 'rviz/yahboomcar.rviz'
+    default_rviz_config_path = os.path.join(pkg_path, 'rviz', 'yahboomcar.rviz')
 
     rviz_arg = DeclareLaunchArgument(name='rvizconfig', default_value=str(default_rviz_config_path),
                                      description='Absolute path to rviz config file')

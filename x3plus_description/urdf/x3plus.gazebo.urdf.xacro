@@ -1,8 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<robot name="x3plus" xmlns:xacro="http://wiki.ros.org/xacro">
+<robot name="yahboomcar_X3plus" xmlns:xacro="http://wiki.ros.org/xacro">
 
-    <xacro:include filename="$(find x3plus_description)/urdf/x3plus.gazebo.xacro"/>
-    <xacro:include filename="$(find x3plus_description)/urdf/x3plus_ros2_control.xacro"/>
     <link name="base_footprint"/>
     <link name="imu_link"/>
     <link name="base_link">
