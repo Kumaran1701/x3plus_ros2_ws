@@ -9,6 +9,7 @@ from nav_msgs.msg import Odometry
 from tf2_ros import TransformBroadcaster
 from geometry_msgs.msg import TransformStamped
 import math
+from tf_transformations import quaternion_from_euler
 
 class x3plusDriver(Node):
 
@@ -68,17 +69,18 @@ class x3plusDriver(Node):
 
         t.header.stamp = current_time.to_msg()
         t.header.frame_id = 'odom'
-        t.child_frame_id = 'base_link'
+        t.child_frame_id = 'base_footprint'
 
         t.transform.translation.x = self.x
         t.transform.translation.y = self.y
         t.transform.translation.z = 0.0
 
-        qz = math.sin(self.theta / 2.0)
-        qw = math.cos(self.theta / 2.0)
+        q = quaternion_from_euler(0.0, 0.0, self.theta)
 
-        t.transform.rotation.z = qz
-        t.transform.rotation.w = qw
+        t.transform.rotation.x = q[0]
+        t.transform.rotation.y = q[1]
+        t.transform.rotation.z = q[2]
+        t.transform.rotation.w = q[3]
 
         self.tf_broadcaster_.sendTransform(t)
 
@@ -86,14 +88,16 @@ class x3plusDriver(Node):
 
         odom.header.stamp = current_time.to_msg()
         odom.header.frame_id = 'odom'
-
-        odom.child_frame_id = 'base_link'
+        odom.child_frame_id = 'base_footprint'
 
         odom.pose.pose.position.x = self.x
         odom.pose.pose.position.y = self.y
+        odom.pose.pose.position.z = 0.0
 
-        odom.pose.pose.orientation.z = qz
-        odom.pose.pose.orientation.w = qw
+        odom.pose.pose.orientation.x = q[0]
+        odom.pose.pose.orientation.y = q[1]
+        odom.pose.pose.orientation.z = q[2]
+        odom.pose.pose.orientation.w = q[3]
 
         odom.twist.twist.linear.x = self.vx
         odom.twist.twist.linear.y = self.vy
