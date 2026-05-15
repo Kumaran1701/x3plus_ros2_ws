@@ -178,7 +178,7 @@ class x3plusDriver(Node):
 
         arm_joints_deg = list(self.joints)
 
-        arm_joints_deg[5] = float(np.inter(arm_joints_deg[5], [30.0, 180.0], [0.0, 90.0]))
+        arm_joints_deg[5] = float(np.interp(arm_joints_deg[5], [30.0, 180.0], [0.0, 90.0]))
         mid_offset = np.array([90.0] * 6)
         normalized_deg = np.array(arm_joints_deg) - mid_offset
 
