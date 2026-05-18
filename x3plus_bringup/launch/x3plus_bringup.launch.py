@@ -15,13 +15,6 @@ def generate_launch_description():
         value_type=str
     )
     
-    driver_node = Node(
-        package='x3plus_bringup',
-        executable='x3plus_driver.py',
-        name='driver_node',
-        output='screen'
-    )
-
     robot_state_publisher_node = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
@@ -31,7 +24,24 @@ def generate_launch_description():
         output='screen'
     )
 
+    driver_node = Node(
+        package='x3plus_bringup',
+        executable='x3plus_driver.py',
+        name='driver_node',
+        output='screen'
+    )
+
+    camera_arm_node = Node(
+        package='x3plus_camera_arm',
+        executable='x3plus_camera_arm.py',
+        name='camera_arm_node',
+        output='screen'
+    )
+    
+
     return LaunchDescription([
-        driver_node,
         robot_state_publisher_node,
+        driver_node,
+        camera_arm_node,
+
     ])
