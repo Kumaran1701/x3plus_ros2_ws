@@ -55,9 +55,9 @@ class x3plusDriver(Node):
         self.timer_ = self.create_timer(0.02 , self.timer_callback)
 
     def cmd_vel_callback(self, msg):
-        self.vx_pub = msg.linear.x
-        self.vy_pub = msg.linear.y
-        self.angular_pub = msg.angular.z
+        self.vx_pub = msg.twist.linear.x
+        self.vy_pub = msg.twist.linear.y
+        self.angular_pub = msg.twist.angular.z
 
         self.car.set_car_motion(self.vx_pub, self.vy_pub, self.angular_pub)
 
