@@ -62,26 +62,19 @@ def generate_launch_description():
         parameters=[ekf_config]
     )
 
+    camera_arm_node = Node(
+        package='x3plus_camera_arm',
+        executable='x3plus_camera_arm.py',
+        name='camera_arm_node',
+        output='screen'
+    )
+
     robot_state_publisher_node = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
         parameters=[
             {'robot_description': robot_description}
         ],
-        output='screen'
-    )
-
-    driver_node = Node(
-        package='x3plus_bringup',
-        executable='x3plus_driver.py',
-        name='driver_node',
-        output='screen'
-    )
-
-    camera_arm_node = Node(
-        package='x3plus_camera_arm',
-        executable='x3plus_camera_arm.py',
-        name='camera_arm_node',
         output='screen'
     )
     
@@ -91,8 +84,8 @@ def generate_launch_description():
         odom_node,
         imu_filter_node,
         ekf_node,
-        robot_state_publisher_node,
-        driver_node,
         camera_arm_node,
+        robot_state_publisher_node,
+
 
     ])
