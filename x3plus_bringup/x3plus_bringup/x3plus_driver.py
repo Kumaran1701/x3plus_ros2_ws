@@ -48,7 +48,7 @@ class x3plusDriver(Node):
         self.car.create_receive_threading()
         self.get_logger().info("Driver node started")
 
-        self.joints = [90, 145, 0, 45, 90, 30]
+        self.joints = [90, 90, 90, 90, 90, 90]
         self.car.set_uart_servo_angle_array(self.joints, 1000)
 
         self.last_time = self.get_clock().now()
