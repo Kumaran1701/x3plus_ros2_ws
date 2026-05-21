@@ -44,6 +44,7 @@ install(
 
 install(PROGRAMS
   ${PROJECT_NAME}/x3plus_driver.py
+  ${PROJECT_NAME}/odom_node.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
