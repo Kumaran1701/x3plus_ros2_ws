@@ -116,9 +116,9 @@ class x3plusDriver(Node):
 
         twist.header.stamp = current_time.to_msg()
         twist.header.frame_id = 'base_footprint'
-        twist.linear.x = vel_x
-        twist.linear.y = vel_y
-        twist.angular.z = vel_angular
+        twist.twist.linear.x = vel_x
+        twist.twist.linear.y = vel_y
+        twist.twist.angular.z = vel_angular
 
         self.imu_pub_.publish(imu)
         self.mag_pub_.publish(mag)
