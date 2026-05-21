@@ -7,14 +7,61 @@ import os
 
 def generate_launch_description():
 
-    pkg_path = get_package_share_directory('x3plus_description')
-    urdf_file = os.path.join(pkg_path, 'urdf', 'x3plus.gazebo.urdf.xacro')
+    pkg_path_description = get_package_share_directory('x3plus_description')
+    urdf_file = os.path.join(pkg_path_description, 'urdf', 'x3plus.gazebo.urdf.xacro')
+
+    pkg_path_bringup = get_package_share_directory('x3plus_bringup')
+    ekf_config = os.path.join(pkg_path_bringup, 'config', 'x3plus_ekf.yaml')
 
     robot_description = ParameterValue(
         Command(['xacro ', urdf_file]),
         value_type=str
     )
     
+    driver_node = Node(
+        package='x3plus_bringup',
+        executable='x3plus_driver.py',
+        name='driver_node',
+        output='screen'
+    )
+
+    odom_node = Node(
+        package='x3plus_bringup',
+        executable='odom_node.py',
+        name='odometry_publisher_node',
+        output='screen'
+    )
+
+    imu_filter_node = Node(
+        package='imu_filter_madgwick',
+        executable='imu_filter_madgwick_node',
+        name='imu_filter_madgwick',
+        output='screen',
+
+        parameters=[{
+            'fixed_frame': 'base_link',
+            'use_mag': False,
+            'publish_tf': False,
+            'use_magnetic_field_msg': False,
+            'world_frame': 'enu',
+            'orientation_stddev': 0.05,
+            'angular_scale': 1.03,
+        }],
+
+        remappings=[
+            ('imu/data_raw', '/imu/raw'),
+            ('imu/mag', '/mag/raw'),
+        ]
+    )
+
+    ekf_node = Node(
+        package='robot_localization',
+        executable='ekf_node',
+        name='ekf_filter_node',
+        output='screen',
+        parameters=[ekf_config]
+    )
+
     robot_state_publisher_node = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
@@ -40,6 +87,10 @@ def generate_launch_description():
     
 
     return LaunchDescription([
+        driver_node,
+        odom_node,
+        imu_filter_node,
+        ekf_node,
         robot_state_publisher_node,
         driver_node,
         camera_arm_node,
