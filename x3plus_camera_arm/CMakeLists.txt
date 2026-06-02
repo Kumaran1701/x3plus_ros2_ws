@@ -25,6 +25,7 @@ endif()
 
 install(PROGRAMS
   ${PROJECT_NAME}/x3plus_camera_arm.py
+  ${PROJECT_NAME}/circle_detector.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
