@@ -36,7 +36,7 @@ class x3plusCircleDetector(Node):
         )
 
         if circles is not None:
-            circles = np.unit16(np.around(circles))
+            circles = np.uint16(np.around(circles))
 
             for i in circles[0, :]:
                 cv2.circle(frame, (i[0], i[1]), i[2], (0, 255, 0), 2)
