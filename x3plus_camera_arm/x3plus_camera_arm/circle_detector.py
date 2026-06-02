@@ -18,7 +18,7 @@ class x3plusCircleDetector(Node):
 
 
     def image_callback(self, msg):
-        frame = self.bridge.imgmsg_to_cv2(msg, encoding='bgr8')
+        frame = self.bridge.imgmsg_to_cv2(msg)
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
