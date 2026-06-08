@@ -91,11 +91,12 @@ class x3plusCircleDetector(Node):
         output_depth.header.stamp = msg.header.stamp
         output_depth.header.frame_id = msg.header.frame_id
 
-        circle_distance = self.depth_frame[cy, cx]
+        
 
         u = cx
         v = cy
-        z = circle_distance
+        roi = self.depth_frame[cy-2:cy+3, cx-2:cx+3]
+        z = np.median(roi)
 
         x = (u - self.cx0) * z / self.fx
         y = (v - self.cy0) * z / self.fy
