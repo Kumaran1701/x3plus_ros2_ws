@@ -65,8 +65,11 @@ class x3plusCircleDetector(Node):
         output.header.stamp = msg.header.stamp
         output.header.frame_id = msg.header.frame_id
 
+        output_depth.header.stamp = msg.header.stamp
+        output_depth.header.frame_id = msg.header.frame_id
+
         self.camera_arm_pub_.publish(output)
-        self.depth_camera_pub_.publish()
+        self.depth_camera_pub_.publish(output_depth)
 
 def main():
     rclpy.init()
