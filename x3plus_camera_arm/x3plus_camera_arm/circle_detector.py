@@ -35,6 +35,7 @@ class x3plusCircleDetector(Node):
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
         gray_blurred = cv2.medianBlur(gray, 5)
+        
 
         circles = cv2.HoughCircles(
             image=gray_blurred,
