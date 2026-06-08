@@ -99,7 +99,7 @@ class x3plusCircleDetector(Node):
 
         x = (u - self.cx0) * z / self.fx
         y = (v - self.cy0) * z / self.fy
-
+        self.get_logger().info(f"circle_distance: {z}")
         self.get_logger().info(
             f"Camera: ({x:.3f}, {y:.3f}, {z:.3f})"
         )
