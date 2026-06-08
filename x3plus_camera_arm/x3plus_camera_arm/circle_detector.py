@@ -44,8 +44,8 @@ class x3plusCircleDetector(Node):
             minDist=50,
             param1=50,
             param2=30,
-            minRadius=5,
-            maxRadius=80
+            minRadius=10,
+            maxRadius=20
         )
 
         if circles is not None:
@@ -57,7 +57,7 @@ class x3plusCircleDetector(Node):
             r = int(circle[2])
 
             cv2.circle(frame, (cx, cy), r, (0, 0, 255), 5)
-            cv2.circle(self.depth_frame, (cx, cy), r, (255), 5)
+            cv2.circle(self.depth_frame, (cx, cy), r, (0), 5)
     
 
         output = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
