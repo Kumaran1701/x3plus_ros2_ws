@@ -22,7 +22,7 @@ class x3plusCircleDetector(Node):
         self.depth_camera_sub_ = self.create_subscription(Image, '/camera/depth/image_raw', self.depth_callback, 10)
 
     def depth_callback(self, msg):
-        self.depth_frame = self.bridge.imgmsg_to_cv2(msg)
+        self.depth_frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
         self.depth_frame_flag = True
 
     def image_callback(self, msg):
@@ -48,6 +48,16 @@ class x3plusCircleDetector(Node):
             maxRadius=20
         )
 
+        depth_vis = cv2.normalize(
+            self.depth_frame,
+            None,
+            0,
+            255,
+            cv2.NORM_MINMAX
+        )
+
+        depth_vis = depth_vis.astype(np.uint8)
+
         if circles is not None:
             circles = np.uint16(np.around(circles))
 
@@ -57,17 +67,20 @@ class x3plusCircleDetector(Node):
             r = int(circle[2])
 
             cv2.circle(frame, (cx, cy), r, (0, 0, 255), 5)
-            cv2.circle(self.depth_frame, (cx, cy), r, (0), 5)
+            cv2.circle(depth_vis, (cx, cy), r, 255, 5)
     
 
         output = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
-        output_depth = self.bridge.cv2_to_imgmsg(self.depth_frame)
+        output_depth = self.bridge.cv2_to_imgmsg(depth_vis)
 
         output.header.stamp = msg.header.stamp
         output.header.frame_id = msg.header.frame_id
 
         output_depth.header.stamp = msg.header.stamp
         output_depth.header.frame_id = msg.header.frame_id
+
+        circle_distance = self.depth_frame[cy, cx]
+        
 
         self.camera_arm_pub_.publish(output)
         self.depth_camera_pub_.publish(output_depth)
