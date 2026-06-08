@@ -57,11 +57,10 @@ class x3plusCircleDetector(Node):
 
             cv2.circle(frame, (cx, cy), r, (0, 0, 255), 5)
             cv2.circle(self.depth_frame, (cx, cy), r, (255), 5)
-        
-
+    
 
         output = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
-        output_depth = self.bridge.cv2_to_imgmsg()
+        output_depth = self.bridge.cv2_to_imgmsg(self.depth_frame)
 
         output.header.stamp = msg.header.stamp
         output.header.frame_id = msg.header.frame_id
