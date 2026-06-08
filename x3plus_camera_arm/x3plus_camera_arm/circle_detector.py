@@ -12,7 +12,7 @@ class x3plusCircleDetector(Node):
     def __init__(self):
         super().__init__('circle_detector_node')
 
-        self.depth_frame = None
+        self.depth_frame_flag = False
 
         self.bridge = CvBridge()
         self.camera_arm_pub_ = self.create_publisher(Image, '/camera_arm/image_circle', 10)
@@ -23,10 +23,11 @@ class x3plusCircleDetector(Node):
 
     def depth_callback(self, msg):
         self.depth_frame = self.bridge.imgmsg_to_cv2(msg)
+        self.depth_frame_flag = True
 
     def image_callback(self, msg):
 
-        if self.depth_frame == None:
+        if not self.depth_frame_flag:
             return
         
         frame = self.bridge.imgmsg_to_cv2(msg)
