@@ -26,7 +26,7 @@ class x3plusCircleDetector(Node):
 
     def image_callback(self, msg):
 
-        if not self.depth_frame:
+        if self.depth_frame == None:
             return
         
         frame = self.bridge.imgmsg_to_cv2(msg)
