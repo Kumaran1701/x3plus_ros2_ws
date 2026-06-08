@@ -100,6 +100,10 @@ class x3plusCircleDetector(Node):
         x = (u - self.cx0) * z / self.fx
         y = (v - self.cy0) * z / self.fy
 
+        self.get_logger().info(
+            f"Camera: ({x:.3f}, {y:.3f}, {z:.3f})"
+        )
+
         point.header.stamp = msg.header.stamp
         point.header.frame_id = "camera_color_optical_frame"
 
@@ -109,9 +113,7 @@ class x3plusCircleDetector(Node):
 
         point_base = self.tf_buffer.transform(point, "base_link")
 
-        self.get_logger().info(
-            f"Camera: ({x:.3f}, {y:.3f}, {z:.3f})"
-        )
+        
 
         self.get_logger().info(
             f"Base: ({point_base.point.x:.3f}, "
