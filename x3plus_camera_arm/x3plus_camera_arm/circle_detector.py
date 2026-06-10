@@ -102,7 +102,8 @@ class x3plusCircleDetector(Node):
         u = cx
         v = cy
         roi = self.depth_frame[cy-2:cy+3, cx-2:cx+3]
-        z = np.median(roi)
+        z = (np.median(roi))
+        z = z /1000.0
         print("max roi:", z)
 
         print(self.depth_frame.dtype)
@@ -151,16 +152,17 @@ if __name__ == '__main__':
     main()
 
 """
-[INFO] [1781083396.892811794] [circle_detector_node]: cx: 306, radius: 11
-max roi: 459.0
+[INFO] [1781085216.005764666] [circle_detector_node]: cx: 322, radius: 12
+max roi: 532.0
 uint16
-459
-[[459 458 458 458 458]
- [459 459 459 459 459]
- [459 459 459 459 459]
- [459 459 459 459 459]
- [459 459 459 459 459]]
-[INFO] [1781083396.895534700] [circle_detector_node]: distance: 459.0
-[INFO] [1781083396.896322009] [circle_detector_node]: Camera: (-14.440, 61.402, 459.000)
-[INFO] [1781083396.897923252] [circle_detector_node]: Base: (458.231, 15.971, -65.842)
+532
+[[532 532 532 532 531]
+ [532 532 532 532 532]
+ [532 532 532 532 532]
+ [532 532 532 532 532]
+ [532 532 532 532 532]]
+[INFO] [1781085216.008324837] [circle_detector_node]: distance: 532.0
+[INFO] [1781085216.009185022] [circle_detector_node]: Camera: (-1.068, 37.871, 532.000)
+[INFO] [1781085216.010886480] [circle_detector_node]: Base: (531.511, 2.547, -43.229)
+
 """
