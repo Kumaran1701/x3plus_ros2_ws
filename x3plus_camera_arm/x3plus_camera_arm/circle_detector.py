@@ -56,9 +56,11 @@ class x3plusCircleDetector(Node):
             minDist=50,
             param1=50,
             param2=30,
-            minRadius=10,
-            maxRadius=20
+            minRadius=2,
+            maxRadius=80
         )
+
+        #print(circles)
 
         depth_vis = cv2.normalize(
             self.depth_frame,
@@ -80,8 +82,11 @@ class x3plusCircleDetector(Node):
 
             cv2.circle(frame, (cx, cy), r, (0, 0, 255), 5)
             cv2.circle(depth_vis, (cx, cy), r, 255, 5)
+            self.get_logger().info(f"cx: {cx}")
+        else:
+            return
     
-        self.get_logger().info(f"cx: {cx}")
+        
         output = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
         output_depth = self.bridge.cv2_to_imgmsg(depth_vis)
 
@@ -96,12 +101,12 @@ class x3plusCircleDetector(Node):
         u = cx
         v = cy
         roi = self.depth_frame[cy-2:cy+3, cx-2:cx+3]
-        z = np.max(roi)
+        z = np.median(roi)
         print("max roi:", z)
 
         print(self.depth_frame.dtype)
         print(self.depth_frame[cy, cx])
-        print(self.depth_frame[cy-20:cy+21, cx-20:cx+21])
+        print(self.depth_frame[cy-2:cy+3, cx-2:cx+3])
         print("max depth:", np.max(self.depth_frame))
         x = (u - self.cx0) * z / self.fx
         y = (v - self.cy0) * z / self.fy
