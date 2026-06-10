@@ -57,8 +57,8 @@ class x3plusCircleDetector(Node):
             minDist=50,
             param1=50,
             param2=30,
-            minRadius=2,
-            maxRadius=80
+            minRadius=1,
+            maxRadius=15
         )
 
         #print(circles)
@@ -83,7 +83,7 @@ class x3plusCircleDetector(Node):
 
             cv2.circle(frame, (cx, cy), r, (0, 0, 255), 5)
             cv2.circle(depth_vis, (cx, cy), r, 255, 5)
-            self.get_logger().info(f"cx: {cx}")
+            self.get_logger().info(f"cx: {cx}, radius: {r}")
         else:
             return
     
@@ -108,13 +108,14 @@ class x3plusCircleDetector(Node):
         print(self.depth_frame.dtype)
         print(self.depth_frame[cy, cx])
         print(self.depth_frame[cy-2:cy+3, cx-2:cx+3])
-        print("max depth:", np.max(self.depth_frame))
+        #print("max depth:", np.max(self.depth_frame))
         x = (u - self.cx0) * z / self.fx
         y = (v - self.cy0) * z / self.fy
         self.get_logger().info(f"distance: {z}")
         self.get_logger().info(
             f"Camera: ({x:.3f}, {y:.3f}, {z:.3f})"
         )
+        #'''
 
         point.header.stamp = msg.header.stamp
         point.header.frame_id = "camera_color_optical_frame"
@@ -132,7 +133,7 @@ class x3plusCircleDetector(Node):
             f"{point_base.point.y:.3f}, "
             f"{point_base.point.z:.3f})"
         )
-
+        #'''
         
 
         self.camera_arm_pub_.publish(output)
@@ -148,4 +149,18 @@ def main():
 
 if __name__ == '__main__':
     main()
-        
+
+"""
+[INFO] [1781083396.892811794] [circle_detector_node]: cx: 306, radius: 11
+max roi: 459.0
+uint16
+459
+[[459 458 458 458 458]
+ [459 459 459 459 459]
+ [459 459 459 459 459]
+ [459 459 459 459 459]
+ [459 459 459 459 459]]
+[INFO] [1781083396.895534700] [circle_detector_node]: distance: 459.0
+[INFO] [1781083396.896322009] [circle_detector_node]: Camera: (-14.440, 61.402, 459.000)
+[INFO] [1781083396.897923252] [circle_detector_node]: Base: (458.231, 15.971, -65.842)
+"""
