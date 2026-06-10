@@ -61,7 +61,7 @@ def generate_launch_description():
         output='screen',
         parameters=[ekf_config]
     )
-
+    
     camera_arm_node = Node(
         package='x3plus_camera_arm',
         executable='x3plus_camera_arm.py',

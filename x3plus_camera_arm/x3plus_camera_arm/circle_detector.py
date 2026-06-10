@@ -27,19 +27,23 @@ class x3plusCircleDetector(Node):
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
         
-        self.camera_arm_pub_ = self.create_publisher(Image, '/camera_arm/image_circle', 10)
-        self.depth_camera_pub_ = self.create_publisher(Image, '/camera_arm/depth_image', 10)
-        #self.camera_arm_sub_ = self.create_subscription(Image, '/camera_arm/image_raw', self.image_callback, 10)
-        self.camera_arm_sub_ = self.create_subscription(Image, '/camera/color/image_raw', self.image_callback, 10)
+        self.camera_arm_pub_ = self.create_publisher(Image, '/camera_circle/image_circle', 10)
+        self.depth_camera_pub_ = self.create_publisher(Image, '/camera_circle/depth_image', 10)
         self.depth_camera_sub_ = self.create_subscription(Image, '/camera/depth/image_raw', self.depth_callback, 10)
+        self.camera_arm_sub_ = self.create_subscription(Image, '/camera/color/image_raw', self.image_callback, 10)
+        
 
     def depth_callback(self, msg):
+        print("Depth Image received")
         self.depth_frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
         self.depth_frame_flag = True
 
     def image_callback(self, msg):
 
+        print("Image_callback started")
+
         if not self.depth_frame_flag:
+            print("depth_frame_flag: ", self.depth_frame_flag)
             return
         point = PointStamped()
 
@@ -57,8 +61,8 @@ class x3plusCircleDetector(Node):
             minDist=50,
             param1=50,
             param2=30,
-            minRadius=1,
-            maxRadius=15
+            minRadius=30,
+            maxRadius=40
         )
 
         #print(circles)
@@ -85,6 +89,7 @@ class x3plusCircleDetector(Node):
             cv2.circle(depth_vis, (cx, cy), r, 255, 5)
             self.get_logger().info(f"cx: {cx}, radius: {r}")
         else:
+            print("No valid circle")
             return
     
         

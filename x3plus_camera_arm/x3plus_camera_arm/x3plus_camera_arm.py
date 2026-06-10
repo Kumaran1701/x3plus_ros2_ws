@@ -17,7 +17,7 @@ class x3plusCameraArm(Node):
 
         self.capture = cv2.VideoCapture(0)
 
-        self.timer = self.create_timer(0.03, self.timer_callback)
+        self.timer = self.create_timer(0.3, self.timer_callback)
 
         self.get_logger().info("Camera_Arm_Node started")
 
