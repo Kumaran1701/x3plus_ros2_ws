@@ -5,6 +5,7 @@ from sensor_msgs.msg import Image
 from geometry_msgs.msg import PointStamped
 from tf2_ros import Buffer, TransformListener
 import tf2_geometry_msgs
+from visualization_msgs.msg import Marker
 
 import cv2
 from cv_bridge import CvBridge
@@ -23,6 +24,12 @@ class x3plusCircleDetector(Node):
         self.cy0 = 241.3283
 
         self.bridge = CvBridge()
+
+        self.marker_pub = self.create_publisher(
+            Marker,
+            '/circle_marker',
+            10
+        )
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -132,8 +139,35 @@ class x3plusCircleDetector(Node):
 
         point_base = self.tf_buffer.transform(point, "base_link")
 
-        
+        marker = Marker()
 
+        marker.header.frame_id = "base_link"
+        marker.header.stamp = self.get_clock().now().to_msg()
+
+        marker.ns = "circle_detection"
+        marker.id = 0
+
+        marker.type = Marker.SPHERE
+        marker.action = Marker.ADD
+
+        marker.pose.position.x = point_base.point.x
+        marker.pose.position.y = point_base.point.y
+        marker.pose.position.z = point_base.point.z
+
+        marker.pose.orientation.w = 1.0
+
+        marker.scale.x = 0.03
+        marker.scale.y = 0.03
+        marker.scale.z = 0.03
+
+        marker.color.a = 1.0
+        marker.color.r = 1.0
+        marker.color.g = 0.0
+        marker.color.b = 0.0
+
+        self.marker_pub.publish(marker)
+
+    
         self.get_logger().info(
             f"Base: ({point_base.point.x:.3f}, "
             f"{point_base.point.y:.3f}, "
