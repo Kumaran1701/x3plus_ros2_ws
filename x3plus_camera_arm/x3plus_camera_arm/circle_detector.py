@@ -89,7 +89,7 @@ class x3plusCircleDetector(Node):
             cv2.circle(depth_vis, (cx, cy), r, 255, 5)
             self.get_logger().info(f"cx: {cx}, radius: {r}")
         else:
-            print("No valid circle")
+            # print("No valid circle")
             return
     
         
