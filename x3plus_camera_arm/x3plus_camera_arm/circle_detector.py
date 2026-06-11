@@ -157,17 +157,17 @@ if __name__ == '__main__':
     main()
 
 """
-[INFO] [1781187511.171473664] [circle_detector_node]: cx: 336, radius: 32
-max roi: 0.53
+[INFO] [1781188283.609719093] [circle_detector_node]: cx: 338, radius: 36
+max roi: 0.525
 uint16
-530
-[[530 530 530 530 530]
- [530 530 530 530 530]
- [530 530 530 530 530]
- [531 530 530 530 530]
- [531 531 530 530 530]]
-[INFO] [1781187511.173873216] [circle_detector_node]: distance: 0.53
-[INFO] [1781187511.174597344] [circle_detector_node]: Camera: (0.013, 0.049, 0.530)
-[INFO] [1781187511.176099808] [circle_detector_node]: Base: (0.488, -0.036, 0.364)
+525
+[[525 525 525 525 525]
+ [525 525 525 525 525]
+ [525 525 525 525 525]
+ [525 525 525 525 525]
+ [525 525 525 525 525]]
+[INFO] [1781188283.612478313] [circle_detector_node]: distance: 0.525
+[INFO] [1781188283.613345837] [circle_detector_node]: Camera: (0.014, 0.109, 0.525)
+[INFO] [1781188283.615616332] [circle_detector_node]: Base: (0.482, -0.037, 0.305)
 
 """
