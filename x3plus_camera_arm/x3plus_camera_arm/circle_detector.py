@@ -34,13 +34,13 @@ class x3plusCircleDetector(Node):
         
 
     def depth_callback(self, msg):
-        print("Depth Image received")
+        # print("Depth Image received")
         self.depth_frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
         self.depth_frame_flag = True
 
     def image_callback(self, msg):
 
-        print("Image_callback started")
+        # print("Image_callback started")
 
         if not self.depth_frame_flag:
             print("depth_frame_flag: ", self.depth_frame_flag)
@@ -109,11 +109,11 @@ class x3plusCircleDetector(Node):
         roi = self.depth_frame[cy-2:cy+3, cx-2:cx+3]
         z = (np.median(roi))
         z = z /1000.0
-        print("max roi:", z)
+        # print("max roi:", z)
 
-        print(self.depth_frame.dtype)
-        print(self.depth_frame[cy, cx])
-        print(self.depth_frame[cy-2:cy+3, cx-2:cx+3])
+        # print(self.depth_frame.dtype)
+        # print(self.depth_frame[cy, cx])
+        # print(self.depth_frame[cy-2:cy+3, cx-2:cx+3])
         #print("max depth:", np.max(self.depth_frame))
         x = (u - self.cx0) * z / self.fx
         y = (v - self.cy0) * z / self.fy
