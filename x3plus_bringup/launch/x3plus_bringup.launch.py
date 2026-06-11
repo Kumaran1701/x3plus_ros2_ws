@@ -1,6 +1,8 @@
 from launch import LaunchDescription
 from launch_ros.actions import Node
-from launch.substitutions import Command
+from launch.actions import DeclareLaunchArgument
+from launch.conditions import IfCondition
+from launch.substitutions import Command, LaunchConfiguration
 from launch_ros.parameter_descriptions import ParameterValue
 from ament_index_python.packages import get_package_share_directory
 import os
@@ -12,6 +14,11 @@ def generate_launch_description():
 
     pkg_path_bringup = get_package_share_directory('x3plus_bringup')
     ekf_config = os.path.join(pkg_path_bringup, 'config', 'x3plus_ekf.yaml')
+
+    enable_camera_arm = DeclareLaunchArgument(
+        'enable_camera_arm',
+        default_value='false'
+    )
 
     robot_description = ParameterValue(
         Command(['xacro ', urdf_file]),
@@ -66,7 +73,10 @@ def generate_launch_description():
         package='x3plus_camera_arm',
         executable='x3plus_camera_arm.py',
         name='camera_arm_node',
-        output='screen'
+        output='screen',
+        condition=IfCondition(
+            LaunchConfiguration('enable_camera_arm')
+        )
     )
 
     robot_state_publisher_node = Node(
@@ -80,6 +90,7 @@ def generate_launch_description():
     
 
     return LaunchDescription([
+        enable_camera_arm,
         driver_node,
         odom_node,
         imu_filter_node,
