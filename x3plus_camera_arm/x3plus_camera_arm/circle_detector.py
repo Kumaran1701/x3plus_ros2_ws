@@ -235,6 +235,7 @@ def main():
     node.destroy_node()
     rclpy.shutdown()
 
+
 if __name__ == '__main__':
     main()
 
@@ -251,5 +252,8 @@ uint16
 [INFO] [1781188283.612478313] [circle_detector_node]: distance: 0.525
 [INFO] [1781188283.613345837] [circle_detector_node]: Camera: (0.014, 0.109, 0.525)
 [INFO] [1781188283.615616332] [circle_detector_node]: Base: (0.482, -0.037, 0.305)
+
+[INFO] [1781516808.637712345] [rviz]: Message Filter dropping message: frame 'arm_link1' at time 1781516798.582 for reason 'the timestamp on the message is earlier than all the data in the transform cache'
+[INFO] [1781516808.675279540] [rviz]: Message Filter dropping message: frame 'arm_link1' at time 1781516798.650 for reason 'the timestamp on the message is earlier than all the data in the transform cache'
 
 """
