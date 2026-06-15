@@ -186,14 +186,14 @@ class x3plusCircleDetector(Node):
         marker_arm_link1.header.stamp = msg.header.stamp
 
         marker_arm_link1.ns = "circle_wrt_arm_link1"
-        marker_arm_link1.id = 0
+        marker_arm_link1.id = 1
 
         marker_arm_link1.type = Marker.SPHERE
         marker_arm_link1.action = Marker.ADD
 
-        marker_arm_link1.pose.position.x = point_base.point.x
-        marker_arm_link1.pose.position.y = point_base.point.y
-        marker_arm_link1.pose.position.z = point_base.point.z
+        marker_arm_link1.pose.position.x = point_arm_link1.point.x
+        marker_arm_link1.pose.position.y = point_arm_link1.point.y
+        marker_arm_link1.pose.position.z = point_arm_link1.point.z
 
         marker_arm_link1.pose.orientation.w = 1.0
 
