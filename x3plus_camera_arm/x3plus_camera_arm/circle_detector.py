@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
+from rclpy.time import Time
 from sensor_msgs.msg import Image
 from geometry_msgs.msg import PointStamped
 from tf2_ros import Buffer, TransformListener
@@ -11,6 +12,7 @@ import cv2
 from cv_bridge import CvBridge
 
 import numpy as np
+import time
 
 class x3plusCircleDetector(Node):
     def __init__(self):
@@ -33,6 +35,7 @@ class x3plusCircleDetector(Node):
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
+        time.sleep(5)
         
         self.camera_arm_pub_ = self.create_publisher(Image, '/camera_circle/image_circle', 10)
         self.depth_camera_pub_ = self.create_publisher(Image, '/camera_circle/depth_image', 10)
@@ -142,9 +145,9 @@ class x3plusCircleDetector(Node):
         marker = Marker()
 
         marker.header.frame_id = "base_link"
-        marker.header.stamp = self.get_clock().now().to_msg()
+        marker.header.stamp = msg.header.stamp
 
-        marker.ns = "circle_detection"
+        marker.ns = "circle_wrt_base_link"
         marker.id = 0
 
         marker.type = Marker.SPHERE
@@ -165,13 +168,58 @@ class x3plusCircleDetector(Node):
         marker.color.g = 0.0
         marker.color.b = 0.0
 
+        self.get_logger().info(f"Image stamp: {msg.header.stamp.sec}.{msg.header.stamp.nanosec}")
+        
+        tf_arm_link1 = self.tf_buffer.lookup_transform(
+            "arm_link1",
+            point.header.frame_id,
+            Time()
+        )
+
+        self.get_logger().info(f"tf_arm_link1 stamp: {tf_arm_link1.header.stamp.sec}.{tf_arm_link1.header.stamp.nanosec}")
+
+        point_arm_link1 = tf2_geometry_msgs.do_transform_point(point, tf_arm_link1)
+
+        marker_arm_link1 = Marker()
+
+        marker_arm_link1.header.frame_id = "arm_link1"
+        marker_arm_link1.header.stamp = msg.header.stamp
+
+        marker_arm_link1.ns = "circle_wrt_arm_link1"
+        marker_arm_link1.id = 0
+
+        marker_arm_link1.type = Marker.SPHERE
+        marker_arm_link1.action = Marker.ADD
+
+        marker_arm_link1.pose.position.x = point_base.point.x
+        marker_arm_link1.pose.position.y = point_base.point.y
+        marker_arm_link1.pose.position.z = point_base.point.z
+
+        marker_arm_link1.pose.orientation.w = 1.0
+
+        marker_arm_link1.scale.x = 0.06
+        marker_arm_link1.scale.y = 0.06
+        marker_arm_link1.scale.z = 0.06
+
+        marker_arm_link1.color.a = 1.0
+        marker_arm_link1.color.r = 0.0
+        marker_arm_link1.color.g = 1.0
+        marker_arm_link1.color.b = 0.0
+
         self.marker_pub.publish(marker)
+        self.marker_pub.publish(marker_arm_link1)
 
     
         self.get_logger().info(
             f"Base: ({point_base.point.x:.3f}, "
             f"{point_base.point.y:.3f}, "
             f"{point_base.point.z:.3f})"
+        )
+
+        self.get_logger().info(
+            f"Base: ({point_arm_link1.point.x:.3f}, "
+            f"{point_arm_link1.point.y:.3f}, "
+            f"{point_arm_link1.point.z:.3f})"
         )
         #'''
         
