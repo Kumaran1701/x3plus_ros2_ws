@@ -17,7 +17,7 @@
         <visual>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/X3plus/visual/base_link_wo_wheels.stl"/>
+                <mesh filename="package://meshes/X3plus/visual/base_link_wo_wheels.obj"/>
             </geometry>
             <material name="">
                 <color rgba="0 0.7 0 1"/>
@@ -26,7 +26,7 @@
         <collision>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/X3plus/collision/base_link_wo_wheels.stl"/>
+                <mesh filename="package://meshes/X3plus/collision/base_link_wo_wheels.obj"/>
             </geometry>
         </collision>
     </link>
@@ -50,7 +50,7 @@
         <visual>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/X3plus/visual/front_right_wheel.stl"/>
+                <mesh filename="package://meshes/X3plus/visual/front_right_wheel.obj"/>
             </geometry>
             <material name="">
                 <color rgba="0.7 0.7 0.7 1"/>
@@ -59,7 +59,7 @@
         <collision>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/X3plus/collision/front_right_wheel.stl"/>
+                <mesh filename="package://meshes/X3plus/collision/front_right_wheel.obj"/>
             </geometry>
         </collision>
     </link>
@@ -80,7 +80,7 @@
         <visual>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/X3plus/visual/front_left_wheel.stl"/>
+                <mesh filename="package://meshes/X3plus/visual/front_left_wheel.obj"/>
             </geometry>
             <material name="">
                 <color rgba="0.7 0.7 0.7 1"/>
@@ -89,7 +89,7 @@
         <collision>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/X3plus/collision/front_left_wheel.stl"/>
+                <mesh filename="package://meshes/X3plus/collision/front_left_wheel.obj"/>
             </geometry>
         </collision>
     </link>
@@ -110,7 +110,7 @@
         <visual>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/X3plus/visual/back_right_wheel.stl"/>
+                <mesh filename="package://meshes/X3plus/visual/back_right_wheel.obj"/>
             </geometry>
             <material name="">
                 <color rgba="0.7 0.7 0.7 1"/>
@@ -119,7 +119,7 @@
         <collision>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/X3plus/collision/back_right_wheel.stl"/>
+                <mesh filename="package://meshes/X3plus/collision/back_right_wheel.obj"/>
             </geometry>
         </collision>
     </link>
@@ -140,7 +140,7 @@
         <visual>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/X3plus/visual/back_left_wheel.stl"/>
+                <mesh filename="package://meshes/X3plus/visual/back_left_wheel.obj"/>
             </geometry>
             <material name="">
                 <color rgba="0.7 0.7 0.7 1"/>
@@ -149,7 +149,7 @@
         <collision>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/X3plus/collision/back_left_wheel.stl"/>
+                <mesh filename="package://meshes/X3plus/collision/back_left_wheel.obj"/>
             </geometry>
         </collision>
     </link>
@@ -175,7 +175,7 @@
         <visual>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/sensor/visual/camera_link.STL"/>
+                <mesh filename="package://meshes/sensor/visual/camera_link.obj"/>
             </geometry>
             <material name="">
                 <color rgba="0.7 0.7 0.7 1"/>
@@ -184,7 +184,7 @@
         <collision>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/sensor/collision/camera_link.STL"/>
+                <mesh filename="package://meshes/sensor/collision/camera_link.obj"/>
             </geometry>
         </collision>
     </link>
@@ -208,7 +208,7 @@
         <visual>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/sensor/visual/laser_link.STL"/>
+                <mesh filename="package://meshes/sensor/visual/laser_link.obj"/>
             </geometry>
             <material name="">
                 <color rgba="0.7 0.7 0.7 1"/>
@@ -217,7 +217,7 @@
         <collision>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/sensor/collision/laser_link.STL"/>
+                <mesh filename="package://meshes/sensor/collision/laser_link.obj"/>
             </geometry>
         </collision>
     </link>
@@ -242,7 +242,7 @@
         <visual>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/X3plus/visual/arm_link1.STL"/>
+                <mesh filename="package://meshes/X3plus/visual/arm_link1.obj"/>
             </geometry>
             <material name="">
                 <color rgba="0.7 0.7 0.7 1"/>
@@ -251,7 +251,7 @@
         <collision>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/X3plus/collision/arm_link1.STL"/>
+                <mesh filename="package://meshes/X3plus/collision/arm_link1.obj"/>
             </geometry>
         </collision>
     </link>
@@ -277,7 +277,7 @@
         <visual>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/X3plus/visual/arm_link2.STL"/>
+                <mesh filename="package://meshes/X3plus/visual/arm_link2.obj"/>
             </geometry>
             <material name="">
                 <color rgba="0 0.7 0 1"/>
@@ -286,7 +286,7 @@
         <collision>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/X3plus/collision/arm_link2.STL"/>
+                <mesh filename="package://meshes/X3plus/collision/arm_link2.obj"/>
             </geometry>
         </collision>
     </link>
@@ -312,7 +312,7 @@
         <visual>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/X3plus/visual/arm_link3.STL"/>
+                <mesh filename="package://meshes/X3plus/visual/arm_link3.obj"/>
             </geometry>
             <material name="">
                 <color rgba="0.7 0.7 0.7 1"/>
@@ -321,7 +321,7 @@
         <collision>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/X3plus/collision/arm_link3.STL"/>
+                <mesh filename="package://meshes/X3plus/collision/arm_link3.obj"/>
             </geometry>
         </collision>
     </link>
@@ -347,7 +347,7 @@
         <visual>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/X3plus/visual/arm_link4.STL"/>
+                <mesh filename="package://meshes/X3plus/visual/arm_link4.obj"/>
             </geometry>
             <material name="">
                 <color rgba="0 0.7 0 1"/>
@@ -356,7 +356,7 @@
         <collision>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/X3plus/collision/arm_link4.STL"/>
+                <mesh filename="package://meshes/X3plus/collision/arm_link4.obj"/>
             </geometry>
         </collision>
     </link>
@@ -382,7 +382,7 @@
         <visual>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/X3plus/visual/arm_link5.STL"/>
+                <mesh filename="package://meshes/X3plus/visual/arm_link5.obj"/>
             </geometry>
             <material name="">
                 <color rgba="0.7 0.7 0.7 1"/>
@@ -391,7 +391,7 @@
         <collision>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/X3plus/collision/arm_link5.STL"/>
+                <mesh filename="package://meshes/X3plus/collision/arm_link5.obj"/>
             </geometry>
         </collision>
     </link>
@@ -418,7 +418,7 @@
         <visual>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/X3plus/visual/rlink1.STL"/>
+                <mesh filename="package://meshes/X3plus/visual/rlink1.obj"/>
             </geometry>
             <material name="">
                 <color rgba="0 0.7 0 1"/>
@@ -427,7 +427,7 @@
         <collision>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/X3plus/visual/rlink1.STL"/>
+                <mesh filename="package://meshes/X3plus/visual/rlink1.obj"/>
             </geometry>
         </collision>
     </link>
@@ -453,7 +453,7 @@
         <visual>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/X3plus/visual/rlink2.STL"/>
+                <mesh filename="package://meshes/X3plus/visual/rlink2.obj"/>
             </geometry>
             <material name="">
                 <color rgba="0 0.7 0 1"/>
@@ -462,7 +462,7 @@
         <collision>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/X3plus/visual/rlink2.STL"/>
+                <mesh filename="package://meshes/X3plus/visual/rlink2.obj"/>
             </geometry>
         </collision>
     </link>
@@ -488,7 +488,7 @@
         <visual>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/X3plus/visual/rlink3.STL"/>
+                <mesh filename="package://meshes/X3plus/visual/rlink3.obj"/>
             </geometry>
             <material name="">
                 <color rgba="0 0.7 0 1"/>
@@ -497,7 +497,7 @@
         <collision>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/X3plus/visual/rlink3.STL"/>
+                <mesh filename="package://meshes/X3plus/visual/rlink3.obj"/>
             </geometry>
         </collision>
     </link>
@@ -523,7 +523,7 @@
         <visual>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/X3plus/visual/llink1.STL"/>
+                <mesh filename="package://meshes/X3plus/visual/llink1.obj"/>
             </geometry>
             <material name="">
                 <color rgba="0 0.7 0 1"/>
@@ -532,7 +532,7 @@
         <collision>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/X3plus/visual/llink1.STL"/>
+                <mesh filename="package://meshes/X3plus/visual/llink1.obj"/>
             </geometry>
         </collision>
     </link>
@@ -553,7 +553,7 @@
         <visual>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/X3plus/visual/llink2.STL"/>
+                <mesh filename="package://meshes/X3plus/visual/llink2.obj"/>
             </geometry>
             <material name="">
                 <color rgba="0 0.7 0 1"/>
@@ -562,7 +562,7 @@
         <collision>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/X3plus/visual/llink2.STL"/>
+                <mesh filename="package://meshes/X3plus/visual/llink2.obj"/>
             </geometry>
         </collision>
     </link>
@@ -583,7 +583,7 @@
         <visual>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/X3plus/visual/llink3.STL"/>
+                <mesh filename="package://meshes/X3plus/visual/llink3.obj"/>
             </geometry>
             <material name="">
                 <color rgba="0 0.7 0 1"/>
@@ -592,7 +592,7 @@
         <collision>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/X3plus/visual/llink3.STL"/>
+                <mesh filename="package://meshes/X3plus/visual/llink3.obj"/>
             </geometry>
         </collision>
     </link>
@@ -614,7 +614,7 @@
         <visual>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/sensor/visual/mono_link.STL"/>
+                <mesh filename="package://meshes/sensor/visual/mono_link.obj"/>
             </geometry>
             <material name="">
                 <color rgba="0.7 0.7 0.7 1"/>
@@ -623,7 +623,7 @@
         <collision>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://yahboomcar_description/meshes/sensor/collision/mono_link.STL"/>
+                <mesh filename="package://meshes/sensor/collision/mono_link.obj"/>
             </geometry>
         </collision>
     </link>
