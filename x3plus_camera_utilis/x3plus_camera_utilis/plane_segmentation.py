@@ -9,6 +9,12 @@ from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import Float32MultiArray, Header
 import sensor_msgs_py.point_cloud2 as pc2
 
+from tf2_ros import TransformException
+from tf2_ros.buffer import Buffer
+from tf2_ros.transform_listener import TransformListener
+import tf2_geometry_msgs
+from tf2_sensor_msgs.tf2_sensor_msgs import do_transform_cloud
+
 class PlaneSegmentationNode(Node):
     def __init__(self):
         super().__init__('plane_segmentation_node')
@@ -17,7 +23,8 @@ class PlaneSegmentationNode(Node):
         self.declare_parameter('ransac_n', 3)
         self.declare_parameter('num_iterations', 200)
 
-        print("Success")
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
 
         self.pc2_sub_ = self.create_subscription(PointCloud2, '/camera/depth/points', self.pointcloud_callback, 10)
         self.plane_coeff_pub_ = self.create_publisher(Float32MultiArray, '/dominant_plane_coeffiecients', 10)
@@ -65,6 +72,20 @@ class PlaneSegmentationNode(Node):
 
 
     def pointcloud_callback(self, msg: PointCloud2):
+        target_frame = 'base_link'
+
+        try: 
+            transform = self.tf_buffer.lookup_transform(
+                target_frame,
+                msg.header.frame_id,
+                rclpy.time.Time()
+            )
+            msg = do_transform_cloud(msg, transform)
+            frame_id = target_frame
+        except TransformException as ex:
+            self.get_logger().info(f"Waiting for TF frame transform: {ex}")
+            return
+        
         gen = pc2.read_points(msg, field_names=("x", "y", "z"), skip_nans=True)
         structured_points = np.array(list(gen))
         
@@ -118,7 +139,7 @@ class PlaneSegmentationNode(Node):
 def main():
     rclpy.init()
     node = PlaneSegmentationNode()
-    rclpy.spin_once(node)
+    rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
 
