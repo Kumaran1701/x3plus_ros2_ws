@@ -28,15 +28,25 @@ class PlaneSegmentationNode(Node):
     def plane_visualizer(self, points_downsampled, inliers, frame_id):
         num_points = len(points_downsampled)
 
+        # 1. Define colors using standard RGB integers
+        # Red for the dominant plane, Blue for everything else
         red_packed = struct.unpack('I', struct.pack('BBBB', 0, 0, 255, 255))[0]
         blue_packed = struct.unpack('I', struct.pack('BBBB', 255, 0, 0, 255))[0]
 
-        packed_colors = np.full((num_points, 1), blue_packed, dtype=np.uint32)
+        # 2. CREATE STRUCTURED ARRAY: Maps distinct types to a clean byte layout
+        data_type = [('x', np.float32), ('y', np.float32), ('z', np.float32), ('rgb', np.uint32)]
+        packed_points = np.zeros(num_points, dtype=data_type)
 
-        packed_colors[inliers] = red_packed
+        # 3. Populate coordinates
+        packed_points['x'] = points_downsampled[:, 0]
+        packed_points['y'] = points_downsampled[:, 1]
+        packed_points['z'] = points_downsampled[:, 2]
 
-        packed_points = np.hstack([points_downsampled, packed_colors.view(np.float32)])
+        # 4. Colorize points based on RANSAC inliers
+        packed_points['rgb'] = blue_packed
+        packed_points['rgb'][inliers] = red_packed
 
+        # 5. Build individual field maps explicitly
         fields = [
             PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
             PointField(name='y', offset=4, datatype=PointField.FLOAT32, count=1),
@@ -48,8 +58,10 @@ class PlaneSegmentationNode(Node):
         vis_header.stamp = self.get_clock().now().to_msg()
         vis_header.frame_id = frame_id
 
+        # 6. Publish the compliant cloud message
         vis_cloud_msg = pc2.create_cloud(vis_header, fields, packed_points)
         self.plane_vis_pub_.publish(vis_cloud_msg)
+
 
 
     def pointcloud_callback(self, msg: PointCloud2):
