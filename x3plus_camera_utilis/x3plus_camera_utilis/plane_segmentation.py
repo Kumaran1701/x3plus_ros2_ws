@@ -54,20 +54,30 @@ class PlaneSegmentationNode(Node):
 
     def pointcloud_callback(self, msg: PointCloud2):
         gen = pc2.read_points(msg, field_names=("x", "y", "z"), skip_nans=True)
-        points = np.array(list(gen))
+        structured_points = np.array(list(gen))
+        
+        if len(structured_points) < 3:
+            print("Not enough points")
+            return
+
+        # 2. FIX: Convert structured tuple array to standard flat 2D float array (N, 3)
+        points = np.zeros((len(structured_points), 3), dtype=np.float32)
+        points[:, 0] = structured_points['x']
+        points[:, 1] = structured_points['y']
+        points[:, 2] = structured_points['z']
+
         self.get_logger().info(
             f"Received {len(points)} points, "
             f"shape={points.shape}, dtype={points.dtype}"
         )
-        if len(points) < 3:
-            print("Not enough points")
-            return
 
+        # 3. Create Open3D PointCloud
         pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(points)
+        pcd.points = o3d.utility.Vector3dVector(points.astype(np.float64))
         self.get_logger().info(f"Total pcd points: {len(pcd.points)}")
 
-        pcd = pcd.voxel_downsample(voxel_size=0.01)
+        # 4. FIX: Use underscore format required by Open3D 0.17.0
+        pcd = pcd.voxel_down_sample(voxel_size=0.01)
         points_downsampled = np.asarray(pcd.points)
 
         dist_thresh = self.get_parameter('distance_threshold').get_parameter_value().double_value
