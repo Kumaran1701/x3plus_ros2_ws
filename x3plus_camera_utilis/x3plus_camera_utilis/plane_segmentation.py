@@ -23,6 +23,8 @@ class PlaneSegmentationNode(Node):
         self.declare_parameter('ransac_n', 3)
         self.declare_parameter('num_iterations', 200)
 
+        self.declare_parameter('num_planes', 3)
+
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
@@ -30,7 +32,7 @@ class PlaneSegmentationNode(Node):
         self.plane_coeff_pub_ = self.create_publisher(Float32MultiArray, '/dominant_plane_coeffiecients', 10)
         self.plane_vis_pub_ = self.create_publisher(PointCloud2, '/dominant_plane_vis', 10)
 
-        self.get_logger().info("Plane Segmentation with Visualizer initialized")
+        self.get_logger().info("Multi-plane Segmentation with Visualizer initialized")
 
     def plane_visualizer(self, points_downsampled, inliers, frame_id):
         num_points = len(points_downsampled)
@@ -51,7 +53,8 @@ class PlaneSegmentationNode(Node):
 
         # 4. Colorize points based on RANSAC inliers
         packed_points['rgb'] = blue_packed
-        packed_points['rgb'][inliers] = red_packed
+        if len(inliers) > 0:
+            packed_points['rgb'][inliers] = red_packed
 
         # 5. Build individual field maps explicitly
         fields = [
@@ -99,10 +102,21 @@ class PlaneSegmentationNode(Node):
         points[:, 1] = structured_points['y']
         points[:, 2] = structured_points['z']
 
+        max_distance = 0.60
+
+        distances = np.linalg.norm(points, axis=1)
+
+        mask = distances <= max_distance
+
+        points = points[mask]
+
         self.get_logger().info(
-            f"Received {len(points)} points, "
-            f"shape={points.shape}, dtype={points.dtype}"
+            f"Points within {max_distance:.2f} m: {len(points)}"
         )
+
+        if len(points) < 3:
+            self.get_logger().info("Not enough points within 60 cm.")
+            return
 
         # 3. Create Open3D PointCloud
         pcd = o3d.geometry.PointCloud()
@@ -117,24 +131,164 @@ class PlaneSegmentationNode(Node):
         ransac_n = self.get_parameter('ransac_n').get_parameter_value().integer_value
         num_iter = self.get_parameter('num_iterations').get_parameter_value().integer_value
 
-        plane_model, inliers = pcd.segment_plane(
-                distance_threshold=dist_thresh,
-                ransac_n=ransac_n,
-                num_iterations=num_iter
+        num_planes = (self.get_parameter('num_planes').get_parameter_value().integer_value)
+
+        remaining_pcd = pcd
+
+        detected_planes = []
+
+        for plane_index in range(num_planes):
+
+            if len(remaining_pcd.points) < ransac_n:
+
+                self.get_logger().warning(
+                    "Not enough remaining points "
+                    "for another plane."
+                )
+
+                break
+
+            plane_model, inliers = (
+                remaining_pcd.segment_plane(
+                    distance_threshold=dist_thresh,
+                    ransac_n=ransac_n,
+                    num_iterations=num_iter
+                )
             )
 
-        [A, B, C, D] = plane_model
-        self.get_logger().info(f"Plane Model: A:{A}, B:{B}, C:{C}, D:{D}")
-        if D > 0:
-            A, B, C, D = -A, -B, -C, -D
-        
-        plane_coeff_msg = Float32MultiArray()
-        plane_coeff_msg.data = [float(A), float(B), float(C), float(D)]
-        self.plane_coeff_pub_.publish(plane_coeff_msg)
-        frame_id = msg.header.frame_id
-        print("Publishing Plane Coefficients")
+            if len(inliers) < ransac_n:
 
-        self.plane_visualizer(points_downsampled, inliers, frame_id)
+                self.get_logger().warning(
+                    f"Plane {plane_index + 1}: "
+                    "not enough inliers."
+                )
+
+                break
+
+            plane_model = np.asarray(
+                plane_model,
+                dtype=np.float64
+            )
+
+            plane_points = np.asarray(
+                remaining_pcd.points
+            )[inliers]
+
+            # -------------------------------------------------
+            # Store plane
+            # -------------------------------------------------
+
+            detected_planes.append({
+                "coefficients": plane_model,
+                "points": plane_points
+            })
+
+            A, B, C, D = plane_model
+
+            self.get_logger().info(
+                f"Plane {plane_index + 1}: "
+                f"{len(plane_points)} inliers"
+            )
+
+            self.get_logger().info(
+                f"  coefficients: "
+                f"[{A:.6f}, "
+                f"{B:.6f}, "
+                f"{C:.6f}, "
+                f"{D:.6f}]"
+            )
+
+            # -------------------------------------------------
+            # Remove plane from remaining cloud
+            # -------------------------------------------------
+
+            remaining_pcd = (
+                remaining_pcd.select_by_index(
+                    inliers,
+                    invert=True
+                )
+            )
+        if len(detected_planes) == 0:
+
+            self.get_logger().warning(
+                "No planes detected."
+            )
+
+            return
+
+        save_path = (
+            "/home/jetson/segmented_scene.npz"
+        )
+
+        save_data = {
+            "points_downsampled": points_downsampled
+        }
+
+        for i, plane in enumerate(detected_planes):
+
+            save_data[
+                f"plane_{i}_coefficients"
+            ] = plane["coefficients"]
+
+            save_data[
+                f"plane_{i}_points"
+            ] = plane["points"]
+
+        np.savez(
+            save_path,
+            **save_data
+        )
+
+        self.get_logger().info(
+            f"Saved segmented scene to: "
+            f"{save_path}"
+        )
+
+        all_plane_points = np.vstack([
+            plane["points"]
+            for plane in detected_planes
+        ])
+
+        all_plane_inliers = []
+
+        for plane_point in all_plane_points:
+
+            distances = np.linalg.norm(
+                points_downsampled - plane_point,
+                axis=1
+            )
+
+            index = np.argmin(distances)
+
+            all_plane_inliers.append(index)
+
+        all_plane_inliers = np.unique(
+            all_plane_inliers
+        )
+
+        self.plane_visualizer(
+            points_downsampled,
+            all_plane_inliers,
+            frame_id
+        )
+
+        first_plane = detected_planes[0]["coefficients"]
+
+        plane_coeff_msg = Float32MultiArray()
+
+        plane_coeff_msg.data = [
+            float(x)
+            for x in first_plane
+        ]
+
+        self.plane_coeff_pub_.publish(
+            plane_coeff_msg
+        )
+
+        self.get_logger().info(
+            f"Detected {len(detected_planes)} planes."
+        )
+
 
 def main():
     rclpy.init()
