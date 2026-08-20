@@ -22,8 +22,8 @@ class PlaneSegmentationNode(Node):
         self.declare_parameter('distance_threshold', 0.01)
         self.declare_parameter('ransac_n', 3)
         self.declare_parameter('num_iterations', 1000)
-        self.declare_parameter('min_points', 400)
-        self.declare_parameter('voxel', 0.1)
+        self.declare_parameter('min_points', 15)
+        self.declare_parameter('voxel', 0.01)
         self.declare_parameter('num_planes', 3)
 
         self.tf_buffer = Buffer()
@@ -41,6 +41,9 @@ class PlaneSegmentationNode(Node):
         plane_index = 1
 
         while True:
+            if len(remaining_cloud.points) < ransac_n:
+                self.get_logger().info("No points left in the cloud to segment")
+                break
             # Segment the largest plane
             plane_model, inliers = remaining_cloud.segment_plane(distance_threshold=distance_threshold,
                                                                 ransac_n=ransac_n,
@@ -62,13 +65,13 @@ class PlaneSegmentationNode(Node):
 
         return significant_planes, remaining_cloud
 
-    def plane_visualizer(self, points_downsampled, inliers, frame_id):
+    def plane_visualizer(self, points_downsampled, planes_list, frame_id):
         num_points = len(points_downsampled)
 
         # 1. Define colors using standard RGB integers
         # Red for the dominant plane, Blue for everything else
-        red_packed = struct.unpack('I', struct.pack('BBBB', 0, 0, 255, 255))[0]
-        blue_packed = struct.unpack('I', struct.pack('BBBB', 255, 0, 0, 255))[0]
+        #red_packed = struct.unpack('I', struct.pack('BBBB', 0, 0, 255, 255))[0]
+        #blue_packed = struct.unpack('I', struct.pack('BBBB', 255, 0, 0, 255))[0]
 
         # 2. CREATE STRUCTURED ARRAY: Maps distinct types to a clean byte layout
         data_type = [('x', np.float32), ('y', np.float32), ('z', np.float32), ('rgb', np.uint32)]
@@ -80,9 +83,29 @@ class PlaneSegmentationNode(Node):
         packed_points['z'] = points_downsampled[:, 2]
 
         # 4. Colorize points based on RANSAC inliers
-        packed_points['rgb'] = blue_packed
-        if len(inliers) > 0:
-            packed_points['rgb'][inliers] = red_packed
+        grey_packed = struct.unpack('I', struct.pack('BBBB', 150, 150, 155, 255))[0]
+        packed_points['rgb'] = grey_packed
+        if len(planes_list) > 0:
+
+            void_dt = np.dtype((np.void, points_downsampled.dtype.itemsize * points_downsampled.shape[1]))
+            downsampled_view = points_downsampled.view(void_dt).ravel()
+            for plane in planes_list:
+                plane_pts = np.asarray(plane.points)
+                if len(plane_pts) == 0:
+                    continue
+
+                o3d_color = np.asarray(plane.colors)[0]
+                r = int(o3d_color[0] * 255)
+                g = int(o3d_color[1] * 255)
+                b = int(o3d_color[2] * 255)
+
+                packed_color = struct.unpack('I', struct.pack('BBBB', b, g, r, 255))[0]
+
+                plane_view = plane_pts.view(void_dt).ravel()
+                inliers_mask = np.isin(downsampled_view, plane_view)
+
+                packed_points['rgb'][inliers_mask] = packed_color
+            
 
         # 5. Build individual field maps explicitly
         fields = [
@@ -153,7 +176,7 @@ class PlaneSegmentationNode(Node):
 
             voxel = self.get_parameter('voxel').get_parameter_value().double_value
             # 4. FIX: Use underscore format required by Open3D 0.17.0
-            pcd = pcd.voxel_down_sample(voxel_size=voxel)
+            #pcd = pcd.voxel_down_sample(voxel_size=voxel)
             points_downsampled = np.asarray(pcd.points)
     
             dist_thresh = self.get_parameter('distance_threshold').get_parameter_value().double_value
@@ -175,7 +198,7 @@ class PlaneSegmentationNode(Node):
 
             self.plane_visualizer(
                         points_downsampled,
-                        plane_points,
+                        planes,
                         msg.header.frame_id
                     )
             self.get_logger().info("Visualizing Planes")
