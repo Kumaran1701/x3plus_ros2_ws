@@ -354,7 +354,7 @@ class KinectExtrinsicCalibrator(Node):
                 kinect_image
             )
 
-            cv2.waitKey(1)
+            cv2.waitKey(1) & 0xFF
 
             return
 
