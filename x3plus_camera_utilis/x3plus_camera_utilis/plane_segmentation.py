@@ -19,9 +19,9 @@ class PlaneSegmentationNode(Node):
     def __init__(self):
         super().__init__('plane_segmentation_node')
 
-        self.declare_parameter('distance_threshold', 0.02)
+        self.declare_parameter('distance_threshold', 0.01)
         self.declare_parameter('ransac_n', 3)
-        self.declare_parameter('num_iterations', 200)
+        self.declare_parameter('num_iterations', 1000)
 
         self.declare_parameter('num_planes', 3)
 
@@ -102,7 +102,7 @@ class PlaneSegmentationNode(Node):
         points[:, 1] = structured_points['y']
         points[:, 2] = structured_points['z']
 
-        max_distance = 0.60
+        max_distance = 0.80
 
         distances = np.linalg.norm(points, axis=1)
 
@@ -155,12 +155,13 @@ class PlaneSegmentationNode(Node):
                     num_iterations=num_iter
                 )
             )
+            min_plane_points = 100
 
-            if len(inliers) < ransac_n:
+            if len(inliers) < min_plane_points:
 
                 self.get_logger().warning(
                     f"Plane {plane_index + 1}: "
-                    "not enough inliers."
+                    f"not enough inliers {len(inliers)}."
                 )
 
                 break

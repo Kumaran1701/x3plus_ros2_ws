@@ -14,6 +14,7 @@ find_package(tf2_sensor_msgs REQUIRED)
 # find_package(<dependency> REQUIRED)
 install(PROGRAMS
   ${PROJECT_NAME}/plane_segmentation.py
+  ${PROJECT_NAME}/all_planes.py
   DESTINATION lib/${PROJECT_NAME}
 )
 if(BUILD_TESTING)
