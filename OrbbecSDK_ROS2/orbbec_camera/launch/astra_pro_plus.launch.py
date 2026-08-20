@@ -73,6 +73,7 @@ def generate_launch_description():
         DeclareLaunchArgument('enable_heartbeat', default_value='false'),
     ]
 
+
     # Node configuration
     parameters = [{arg.name: LaunchConfiguration(arg.name)} for arg in args]
     # get  ROS_DISTRO
