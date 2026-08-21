@@ -206,27 +206,35 @@ class KinectExtrinsicCalibrator(Node):
     # ChArUco detection
     # ================================================================
 
-    def detect_board(self, image, camera_matrix, dist_coeffs):
+    def detect_board(self, image, camera_matrix, dist_coeffs, camera_name):
 
-        gray = cv2.cvtColor(
-            image,
-            cv2.COLOR_BGR2GRAY
-        )
+        # Astra publishes RGB8, Kinect is converted to BGR8.
+        if camera_name == "Astra":
+            gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+        else:
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
         corners, ids, _ = cv2.aruco.detectMarkers(
             gray,
             self.dictionary,
             parameters=self.detector_params
         )
+
         if ids is None:
             self.get_logger().warn(
-                'No ArUco markers detected'
+                f'{camera_name}: NO ArUco markers detected'
             )
-        else:
-            self.get_logger().info(
-                f'Detected {len(ids)} ArUco markers: {ids.flatten()}'
+            return None
+
+        self.get_logger().info(
+            f'{camera_name}: detected {len(ids)} ArUco markers: '
+            f'{ids.flatten()}'
+        )
+
+        if len(ids) < 4:
+            self.get_logger().warn(
+                f'{camera_name}: only {len(ids)} markers, need at least 4'
             )
-        if ids is None or len(ids) < 4:
             return None
 
         retval, charuco_corners, charuco_ids = \
@@ -239,12 +247,15 @@ class KinectExtrinsicCalibrator(Node):
                 distCoeffs=dist_coeffs
             )
 
-        if retval is None or retval < 6:
-            return None
+        self.get_logger().info(
+            f'{camera_name}: Charuco corners = {retval}'
+        )
 
-        # ------------------------------------------------------------
-        # Board 3D points corresponding to detected ChArUco IDs
-        # ------------------------------------------------------------
+        if retval is None or retval < 6:
+            self.get_logger().warn(
+                f'{camera_name}: insufficient ChArUco corners'
+            )
+            return None
 
         board_corners = self.board.getChessboardCorners()
 
@@ -258,10 +269,6 @@ class KinectExtrinsicCalibrator(Node):
             dtype=np.float32
         ).reshape(-1, 2)
 
-        # ------------------------------------------------------------
-        # Board -> camera transform
-        # ------------------------------------------------------------
-
         success, rvec, tvec = cv2.solvePnP(
             object_points,
             image_points,
@@ -271,12 +278,14 @@ class KinectExtrinsicCalibrator(Node):
         )
 
         if not success:
+            self.get_logger().warn(
+                f'{camera_name}: solvePnP failed'
+            )
             return None
 
         R, _ = cv2.Rodrigues(rvec)
 
         T_camera_board = np.eye(4)
-
         T_camera_board[:3, :3] = R
         T_camera_board[:3, 3] = tvec.flatten()
 
@@ -340,14 +349,17 @@ class KinectExtrinsicCalibrator(Node):
         astra_result = self.detect_board(
             astra_image,
             K_astra,
-            D_astra
+            D_astra,
+            "Astra"
         )
 
         kinect_result = self.detect_board(
             kinect_image,
             K_kinect,
-            D_kinect
+            D_kinect,
+            "Kinect"
         )
+
 
         if astra_result is None or kinect_result is None:
 
