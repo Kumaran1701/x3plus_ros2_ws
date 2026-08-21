@@ -218,7 +218,14 @@ class KinectExtrinsicCalibrator(Node):
             self.dictionary,
             parameters=self.detector_params
         )
-
+        if ids is None:
+            self.get_logger().warn(
+                'No ArUco markers detected'
+            )
+        else:
+            self.get_logger().info(
+                f'Detected {len(ids)} ArUco markers: {ids.flatten()}'
+            )
         if ids is None or len(ids) < 4:
             return None
 
