@@ -28,7 +28,7 @@ class PlaneSegmentationNode(Node):
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
-        self.pc2_sub_ = self.create_subscription(PointCloud2, '/camera/depth/points', self.pointcloud_callback, 10)
+        self.pc2_sub_ = self.create_subscription(PointCloud2, '/points2', self.pointcloud_callback, 10)
         self.plane_coeff_pub_ = self.create_publisher(Float32MultiArray, '/dominant_plane_coeffiecients', 10)
         self.plane_vis_pub_ = self.create_publisher(PointCloud2, '/dominant_plane_vis', 10)
 
