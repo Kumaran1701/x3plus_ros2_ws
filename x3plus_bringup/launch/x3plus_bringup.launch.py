@@ -93,19 +93,18 @@ def generate_launch_description():
         executable='static_transform_publisher',
         name='kinect_extrinsic_tf',
         arguments=[
-            '0.3996499',
-            '-0.0116466',
-            '0.4329875',
-            '-0.5004074',
-            '0.5034409',
-            '-0.4961082',
-            '0.5000164',
+            '0.404',
+            '0.020',
+            '0.435',
+            '-0.527',
+            '0.527',
+            '-0.470',
+            '0.473',
             'base_link',
-            'camera_base'
+            'depth_camera_link'
         ],
         output='screen'
     )
-    
     
 
     return LaunchDescription([
