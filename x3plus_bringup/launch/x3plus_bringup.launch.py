@@ -89,22 +89,23 @@ def generate_launch_description():
     )
 
     kinect_extrinsic_tf_node = Node(
-    package='tf2_ros',
-    executable='static_transform_publisher',
-    name='kinect_extrinsic_tf',
-    arguments=[
-        '0.3996499',
-        '-0.0116466',
-        '0.4329875',
-        '-0.5004074',
-        '0.5034409',
-        '-0.4961082',
-        '0.5000164',
-        'base_link',
-        'camera_base'
-    ],
-    output='screen'
-)
+        package='tf2_ros',
+        executable='static_transform_publisher',
+        name='kinect_extrinsic_tf',
+        arguments=[
+            '0.3996499',
+            '-0.0116466',
+            '0.4329875',
+            '-0.5004074',
+            '0.5034409',
+            '-0.4961082',
+            '0.5000164',
+            'base_link',
+            'camera_base'
+        ],
+        output='screen'
+    )
+    
     
 
     return LaunchDescription([
