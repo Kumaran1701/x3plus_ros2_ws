@@ -344,18 +344,34 @@ class KinectExtrinsicCalibrator(Node):
 
         if astra_result is None or kinect_result is None:
 
-            cv2.imshow(
-                'Astra',
-                astra_image
+            astra_display = astra_image.copy()
+            kinect_display = kinect_image.copy()
+
+            astra_text = "CHARUCO DETECTED" if astra_result is not None else "CHARUCO NOT DETECTED"
+            kinect_text = "CHARUCO DETECTED" if kinect_result is not None else "CHARUCO NOT DETECTED"
+
+            cv2.putText(
+                astra_display, astra_text,
+                (20, 40),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1,
+                (0, 255, 0) if astra_result is not None else (0, 0, 255),
+                2
             )
 
-            cv2.imshow(
-                'Kinect',
-                kinect_image
+            cv2.putText(
+                kinect_display, kinect_text,
+                (20, 40),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1,
+                (0, 255, 0) if kinect_result is not None else (0, 0, 255),
+                2
             )
 
-            cv2.waitKey(1) & 0xFF
+            cv2.imshow('Astra', astra_display)
+            cv2.imshow('Kinect', kinect_display)
 
+            cv2.waitKey(1)
             return
 
         T_A_B = astra_result[0]
