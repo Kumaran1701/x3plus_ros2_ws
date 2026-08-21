@@ -65,7 +65,7 @@ class PlaneSegmentationNode(Node):
 
         return significant_planes, remaining_cloud
 
-    def plane_visualizer(self, points_downsampled, planes_list, frame_id):
+    def plane_visualizer(self, points_downsampled, planes_list, input_header):
         num_points = len(points_downsampled)
 
         # 1. Define colors using standard RGB integers
@@ -116,8 +116,8 @@ class PlaneSegmentationNode(Node):
         ]
 
         vis_header = Header()
-        vis_header.stamp = self.get_clock().now().to_msg()
-        vis_header.frame_id = frame_id
+        vis_header.stamp = input_header.stamp        # Syncs perfectly with TF history timeline
+        vis_header.frame_id = input_header.frame_id
 
         # 6. Publish the compliant cloud message
         vis_cloud_msg = pc2.create_cloud(vis_header, fields, packed_points)
@@ -199,7 +199,7 @@ class PlaneSegmentationNode(Node):
             self.plane_visualizer(
                         points_downsampled,
                         planes,
-                        msg.header.frame_id
+                        msg.header
                     )
             self.get_logger().info("Visualizing Planes")
 
