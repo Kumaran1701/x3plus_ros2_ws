@@ -29,7 +29,7 @@ class PlaneSegmentationNode(Node):
 
         self.declare_parameter('distance_threshold', 0.01)
         self.declare_parameter('ransac_n', 3)
-        self.declare_parameter('num_iterations', 2000)
+        self.declare_parameter('num_iterations', 3000)
 
         # Minimum number of points required for a valid plane
         self.declare_parameter('min_points', 50)
@@ -41,7 +41,7 @@ class PlaneSegmentationNode(Node):
         self.declare_parameter('voxel', 0.005)
 
         # We want the three surfaces in your current scene
-        self.declare_parameter('num_planes', 3)
+        self.declare_parameter('num_planes', 8)
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -338,7 +338,7 @@ class PlaneSegmentationNode(Node):
     # =============================================================
 
     def pointcloud_callback(self, msg):
-
+        '''
         target_frame = "base_link"
 
         try:
@@ -357,6 +357,7 @@ class PlaneSegmentationNode(Node):
         except TransformException as ex:
             self.get_logger().warning(f"Waiting for Transform: {ex}")
             return
+        '''
         # ---------------------------------------------------------
         # Read point cloud
         # ---------------------------------------------------------
