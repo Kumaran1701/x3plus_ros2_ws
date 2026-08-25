@@ -11,6 +11,11 @@ from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import Float32MultiArray, Header
 import sensor_msgs_py.point_cloud2 as pc2
 
+from tf2_ros import TransformException
+from tf2_ros.buffer import Buffer
+from tf2_sensor_msgs.tf2_sensor_msgs import do_transform_cloud
+from tf2_ros.transform_listener import TransformListener
+
 
 class PlaneSegmentationNode(Node):
 
@@ -36,6 +41,9 @@ class PlaneSegmentationNode(Node):
 
         # We want the three surfaces in your current scene
         self.declare_parameter('num_planes', 3)
+
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
 
         # ---------------------------------------------------------
         # Subscribers / Publishers
@@ -330,6 +338,24 @@ class PlaneSegmentationNode(Node):
 
     def pointcloud_callback(self, msg):
 
+        target_frame = "base_link"
+
+        try:
+            transform = self.tf_buffer.lookup_transform(
+                target_frame,
+                msg.header.frame_id,
+                rclpy.time.Time()
+            )
+            msg = do_transform_cloud(msg, transform)
+
+            self.get_logger().info(
+                f"Transformed pointcloud from "
+                f"{transform.child_frame_id} to {target_frame}"
+            )
+
+        except TransformException as ex:
+            self.get_logger().warning(f"Waiting for Transform: {ex}")
+            return
         # ---------------------------------------------------------
         # Read point cloud
         # ---------------------------------------------------------
