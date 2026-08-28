@@ -10,6 +10,7 @@ from cv_bridge import CvBridge
 from message_filters import Subscriber, ApproximateTimeSynchronizer
 from tf2_ros import Buffer, TransformListener, TransformException
 
+
 class TSDFHighSpeedRecorder(Node):
     def __init__(self):
         super().__init__('tsdf_high_speed_recorder')
@@ -17,7 +18,8 @@ class TSDFHighSpeedRecorder(Node):
         # Parameters
         self.declare_parameter('total_frames_to_save', 50)
         self.declare_parameter('world_frame', 'odom')
-        self.declare_parameter('camera_frame', 'camera_link')
+        # Use the DEPTH camera frame (matches /depth/image_raw)
+        self.declare_parameter('camera_frame', 'depth_camera_link')
         self.declare_parameter('output_directory', 'tsdf_dataset')
 
         self.total_frames = self.get_parameter('total_frames_to_save').value
@@ -42,11 +44,14 @@ class TSDFHighSpeedRecorder(Node):
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
         # Subscribers
+        # Depth: native depth image
         self.sub_depth = Subscriber(self, Image, '/depth/image_raw')
-        self.sub_rgb = Subscriber(self, Image, '/rgb_to_depth/image_raw')
-        self.sub_info = Subscriber(self, CameraInfo, '/rgb_to_depth/camera_info')
+        # RGB: RAW RGB image (not warped)
+        self.sub_rgb = Subscriber(self, Image, '/rgb/image_raw')
+        # CameraInfo: RAW RGB intrinsics
+        self.sub_info = Subscriber(self, CameraInfo, '/rgb/camera_info')
 
-        # Approximate sync (MUCH faster)
+        # Approximate sync
         self.ts = ApproximateTimeSynchronizer(
             [self.sub_depth, self.sub_rgb, self.sub_info],
             queue_size=30,
@@ -55,6 +60,11 @@ class TSDFHighSpeedRecorder(Node):
         self.ts.registerCallback(self.synchronized_callback)
 
         self.get_logger().info("Optimized TSDF Recorder Started.")
+        self.get_logger().info(f"World frame:  {self.world_frame}")
+        self.get_logger().info(f"Camera frame: {self.camera_frame}")
+        self.get_logger().info("Depth topic:  /depth/image_raw")
+        self.get_logger().info("RGB topic:    /rgb/image_raw")
+        self.get_logger().info("Info topic:   /rgb/camera_info")
 
     def synchronized_callback(self, depth_msg, rgb_msg, info_msg):
         if self.frame_count >= self.total_frames:
@@ -63,7 +73,7 @@ class TSDFHighSpeedRecorder(Node):
         timestamp = depth_msg.header.stamp
         frame_idx = str(self.frame_count).zfill(5)
 
-        # TF lookup
+        # TF lookup: world_frame -> depth_camera_link
         try:
             tf_transform = self.tf_buffer.lookup_transform(
                 self.world_frame,
@@ -81,16 +91,21 @@ class TSDFHighSpeedRecorder(Node):
         pose_matrix[:3, :3] = self.quaternion_to_matrix(q.x, q.y, q.z, q.w)
         pose_matrix[:3, 3] = [t.x, t.y, t.z]
 
-        # Convert images (zero-copy)
+        # Convert images
         try:
             cv_depth = self.bridge.imgmsg_to_cv2(depth_msg, desired_encoding="16UC1")
             cv_rgb = self.bridge.imgmsg_to_cv2(rgb_msg, desired_encoding="bgr8")
         except Exception:
             return
 
+        # RGB intrinsics (fx, fy, cx, cy, width, height)
         intrinsics = np.array([
-            info_msg.k[0], info_msg.k[4], info_msg.k[2], info_msg.k[5],
-            info_msg.width, info_msg.height
+            info_msg.k[0],  # fx
+            info_msg.k[4],  # fy
+            info_msg.k[2],  # cx
+            info_msg.k[5],  # cy
+            info_msg.width,
+            info_msg.height
         ], dtype=np.float32)
 
         # Push to multiprocessing queue
@@ -103,7 +118,6 @@ class TSDFHighSpeedRecorder(Node):
         while True:
             frame_idx, cv_depth, cv_rgb, pose_matrix, intrinsics = self.save_queue.get()
 
-            # Save everything in one NPZ (fast)
             np.savez_compressed(
                 os.path.join(self.output_dir, f"{frame_idx}.npz"),
                 depth=cv_depth,
@@ -131,6 +145,7 @@ class TSDFHighSpeedRecorder(Node):
                          [m10, m11, m12],
                          [m20, m21, m22]], dtype=np.float32)
 
+
 def main(args=None):
     rclpy.init(args=args)
     node = TSDFHighSpeedRecorder()
@@ -145,6 +160,7 @@ def main(args=None):
 
     node.destroy_node()
     rclpy.shutdown()
+
 
 if __name__ == '__main__':
     main()
