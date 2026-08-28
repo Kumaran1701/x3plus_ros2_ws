@@ -125,6 +125,7 @@ class TSDFDataRecorder(Node):
             self.get_logger().error(f"RGB has visual compilation error: {e}")
             return
 
+
         # ----------------------------------------------------
         # STEP 4: Capture & Save Digital Camera Intrinsics
         # ----------------------------------------------------
