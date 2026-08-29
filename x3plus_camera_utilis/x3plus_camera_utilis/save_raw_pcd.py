@@ -149,7 +149,7 @@ class TSDFHighSpeedRecorder(Node):
 
     def _disk_writer_worker(self):
         """Runs in a separate process."""
-        while True:
+        while self.frame_count == 0 or self.state_motion is True:   
             (frame_idx, cv_depth, cv_rgb, pose_matrix,
              depth_intrinsics, depth_distortion,
              rgb_intrinsics, rgb_distortion) = self.save_queue.get()
