@@ -10,6 +10,7 @@ from cv_bridge import CvBridge
 from message_filters import Subscriber, ApproximateTimeSynchronizer
 from tf2_ros import Buffer, TransformListener, TransformException
 from std_msgs.msg import Bool
+from rclpy.qos import QoSProfile, QoSDurabilityPolicy, QoSHistoryPolicy
 
 
 class TSDFHighSpeedRecorder(Node):
@@ -17,7 +18,7 @@ class TSDFHighSpeedRecorder(Node):
         super().__init__('tsdf_high_speed_recorder')
 
         # Parameters
-        self.declare_parameter('total_frames_to_save', 50)
+        self.declare_parameter('total_frames_to_save', 999999)  # practically unlimited
         self.declare_parameter('world_frame', 'odom')
         self.declare_parameter('camera_frame', 'depth_camera_link')
         self.declare_parameter('output_directory', 'tsdf_dataset')
@@ -34,17 +35,25 @@ class TSDFHighSpeedRecorder(Node):
 
         # Multiprocessing queue + worker
         self.save_queue = mp.Queue(maxsize=200)
-        self.worker = mp.Process(target=self._disk_writer_worker, daemon=True)
+        self.worker = mp.Process(target=self._disk_writer_worker, daemon=False)
         self.worker.start()
 
-        # Sync flags
-        self.capture_started_pub = self.create_publisher(Bool, '/tsdf_capture_started', 10)
-        self.rotation_finished_sub = self.create_subscription(
-            Bool, '/tsdf_rotation_finished', self.rotation_finished_cb, 10
+        # QoS for latched messages
+        qos_transient = QoSProfile(
+            durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=1
         )
+
+        # Sync flags
+        self.capture_started_pub = self.create_publisher(Bool, '/tsdf_capture_started', qos_transient)
+        self.rotation_finished_sub = self.create_subscription(
+            Bool, '/tsdf_rotation_finished', self.rotation_finished_cb, qos_transient
+        )
+
         self.rotation_finished = False
         self.stop_after_next_frame = False
-        self.stopped = False
+        self.final_frame_written = False
 
         # TF listener
         self.tf_buffer = Buffer()
@@ -67,31 +76,23 @@ class TSDFHighSpeedRecorder(Node):
         self.ts.registerCallback(self.synchronized_callback)
 
         self.get_logger().info("TSDF recorder started.")
-        self.get_logger().info("Saving depth + RGB + intrinsics + pose.")
 
     def rotation_finished_cb(self, msg: Bool):
-        if msg.data and not self.rotation_finished:
+        if msg.data:
             self.rotation_finished = True
             self.stop_after_next_frame = True
-            self.get_logger().info("Rotation finished signal received — will stop after next valid frame.")
+            self.get_logger().info("Rotation finished — will stop after next valid frame.")
 
     def synchronized_callback(self, depth_msg, depth_info_msg,
                               rgb_msg, rgb_info_msg):
 
-        # If we've decided to stop, ignore further callbacks
-        if self.stopped:
-            return
-
-        # Optional upper bound
-        if self.frame_count >= self.total_frames:
-            self.get_logger().info("Reached total_frames_to_save limit — stopping capture.")
-            self.stopped = True
+        if self.final_frame_written:
             return
 
         timestamp = depth_msg.header.stamp
         frame_idx = str(self.frame_count).zfill(5)
 
-        # TF lookup: world_frame -> depth_camera_link
+        # TF lookup
         try:
             tf_transform = self.tf_buffer.lookup_transform(
                 self.world_frame,
@@ -118,30 +119,24 @@ class TSDFHighSpeedRecorder(Node):
 
         # Depth intrinsics
         depth_intrinsics = np.array([
-            depth_info_msg.k[0],  # fx
-            depth_info_msg.k[4],  # fy
-            depth_info_msg.k[2],  # cx
-            depth_info_msg.k[5],  # cy
-            depth_info_msg.width,
-            depth_info_msg.height
+            depth_info_msg.k[0], depth_info_msg.k[4],
+            depth_info_msg.k[2], depth_info_msg.k[5],
+            depth_info_msg.width, depth_info_msg.height
         ], dtype=np.float32)
 
         depth_distortion = np.array(depth_info_msg.d, dtype=np.float32)
 
         # RGB intrinsics
         rgb_intrinsics = np.array([
-            rgb_info_msg.k[0],  # fx
-            rgb_info_msg.k[4],  # fy
-            rgb_info_msg.k[2],  # cx
-            rgb_info_msg.k[5],  # cy
-            rgb_info_msg.width,
-            rgb_info_msg.height
+            rgb_info_msg.k[0], rgb_info_msg.k[4],
+            rgb_info_msg.k[2], rgb_info_msg.k[5],
+            rgb_info_msg.width, rgb_info_msg.height
         ], dtype=np.float32)
 
         rgb_distortion = np.array(rgb_info_msg.d, dtype=np.float32)
 
-        # Push to multiprocessing queue
-        self.save_queue.put_nowait((
+        # Queue write
+        self.save_queue.put((
             frame_idx,
             cv_depth,
             cv_rgb,
@@ -159,37 +154,44 @@ class TSDFHighSpeedRecorder(Node):
 
         self.frame_count += 1
 
-        # If rotation has finished and we wanted one last frame, stop now
+        # If rotation finished, this is the final frame
         if self.stop_after_next_frame and self.rotation_finished:
-            self.get_logger().info(
-                f"Final frame {frame_idx}.npz queued after rotation finished — stopping further capture."
-            )
-            self.stopped = True
+            self.get_logger().info(f"Final frame {frame_idx}.npz queued — waiting for worker to finish.")
+            self.final_frame_written = True
+
+            # Wait for worker to finish writing everything
+            self.worker.join()
+
+            self.get_logger().info("Worker finished writing final frame — shutting down recorder.")
+            rclpy.shutdown()
 
     def _disk_writer_worker(self):
         """Runs in a separate process."""
         while True:
-            (frame_idx, cv_depth, cv_rgb, pose_matrix,
-             depth_intrinsics, depth_distortion,
-             rgb_intrinsics, rgb_distortion) = self.save_queue.get()
+            try:
+                (frame_idx, cv_depth, cv_rgb, pose_matrix,
+                 depth_intrinsics, depth_distortion,
+                 rgb_intrinsics, rgb_distortion) = self.save_queue.get()
 
-            np.savez_compressed(
-                os.path.join(self.output_dir, f"{frame_idx}.npz"),
-                depth=cv_depth,
-                rgb=cv_rgb,
-                pose=pose_matrix,
-                depth_intrinsics=depth_intrinsics,
-                depth_distortion=depth_distortion,
-                rgb_intrinsics=rgb_intrinsics,
-                rgb_distortion=rgb_distortion
-            )
+                np.savez_compressed(
+                    os.path.join(self.output_dir, f"{frame_idx}.npz"),
+                    depth=cv_depth,
+                    rgb=cv_rgb,
+                    pose=pose_matrix,
+                    depth_intrinsics=depth_intrinsics,
+                    depth_distortion=depth_distortion,
+                    rgb_intrinsics=rgb_intrinsics,
+                    rgb_distortion=rgb_distortion
+                )
+            except Exception:
+                break
 
     def quaternion_to_matrix(self, x, y, z, w):
         sqw = w*w; sqx = x*x; sqy = y*y; sqz = z*z
         invs = 1.0 / (sqx + sqy + sqz + sqw)
         m00 = (sqx - sqy - sqz + sqw) * invs
         m11 = (-sqx + sqy - sqz + sqw) * invs
-        m22 = (-sqx - sqx + sqz + sqw) * invs
+        m22 = (-sqx - sqy + sqz + sqw) * invs
         tmp1 = x*y; tmp2 = z*w
         m10 = 2.0 * (tmp1 + tmp2) * invs
         m01 = 2.0 * (tmp1 - tmp2) * invs
@@ -217,7 +219,6 @@ def main(args=None):
         pass
 
     node.destroy_node()
-    rclpy.shutdown()
 
 
 if __name__ == '__main__':
