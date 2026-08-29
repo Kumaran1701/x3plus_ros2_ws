@@ -18,7 +18,6 @@ class TSDFHighSpeedRecorder(Node):
         # Parameters
         self.declare_parameter('total_frames_to_save', 50)
         self.declare_parameter('world_frame', 'odom')
-        # Use the DEPTH camera frame (matches /depth/image_raw)
         self.declare_parameter('camera_frame', 'depth_camera_link')
         self.declare_parameter('output_directory', 'tsdf_dataset')
 
@@ -32,10 +31,8 @@ class TSDFHighSpeedRecorder(Node):
 
         os.makedirs(self.output_dir, exist_ok=True)
 
-        # Multiprocessing queue (fast, bypasses GIL)
+        # Multiprocessing queue
         self.save_queue = mp.Queue(maxsize=200)
-
-        # Start worker process
         self.worker = mp.Process(target=self._disk_writer_worker, daemon=True)
         self.worker.start()
 
@@ -44,29 +41,27 @@ class TSDFHighSpeedRecorder(Node):
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
         # Subscribers
-        # Depth: native depth image
         self.sub_depth = Subscriber(self, Image, '/depth/image_raw')
-        # RGB: RAW RGB image (not warped)
-        self.sub_rgb = Subscriber(self, Image, '/rgb/image_raw')
-        # CameraInfo: RAW RGB intrinsics
-        self.sub_info = Subscriber(self, CameraInfo, '/rgb/camera_info')
+        self.sub_depth_info = Subscriber(self, CameraInfo, '/depth/camera_info')
 
-        # Approximate sync
+        self.sub_rgb = Subscriber(self, Image, '/rgb/image_raw')
+        self.sub_rgb_info = Subscriber(self, CameraInfo, '/rgb/camera_info')
+
+        # Sync depth + depth_info + rgb + rgb_info
         self.ts = ApproximateTimeSynchronizer(
-            [self.sub_depth, self.sub_rgb, self.sub_info],
+            [self.sub_depth, self.sub_depth_info,
+             self.sub_rgb, self.sub_rgb_info],
             queue_size=30,
             slop=0.03
         )
         self.ts.registerCallback(self.synchronized_callback)
 
-        self.get_logger().info("Optimized TSDF Recorder Started.")
-        self.get_logger().info(f"World frame:  {self.world_frame}")
-        self.get_logger().info(f"Camera frame: {self.camera_frame}")
-        self.get_logger().info("Depth topic:  /depth/image_raw")
-        self.get_logger().info("RGB topic:    /rgb/image_raw")
-        self.get_logger().info("Info topic:   /rgb/camera_info")
+        self.get_logger().info("Recorder started.")
+        self.get_logger().info("Saving depth + RGB + both intrinsics.")
 
-    def synchronized_callback(self, depth_msg, rgb_msg, info_msg):
+    def synchronized_callback(self, depth_msg, depth_info_msg,
+                              rgb_msg, rgb_info_msg):
+
         if self.frame_count >= self.total_frames:
             return
 
@@ -98,32 +93,60 @@ class TSDFHighSpeedRecorder(Node):
         except Exception:
             return
 
-        # RGB intrinsics (fx, fy, cx, cy, width, height)
-        intrinsics = np.array([
-            info_msg.k[0],  # fx
-            info_msg.k[4],  # fy
-            info_msg.k[2],  # cx
-            info_msg.k[5],  # cy
-            info_msg.width,
-            info_msg.height
+        # Depth intrinsics
+        depth_intrinsics = np.array([
+            depth_info_msg.k[0],  # fx
+            depth_info_msg.k[4],  # fy
+            depth_info_msg.k[2],  # cx
+            depth_info_msg.k[5],  # cy
+            depth_info_msg.width,
+            depth_info_msg.height
         ], dtype=np.float32)
 
+        depth_distortion = np.array(depth_info_msg.d, dtype=np.float32)
+
+        # RGB intrinsics
+        rgb_intrinsics = np.array([
+            rgb_info_msg.k[0],  # fx
+            rgb_info_msg.k[4],  # fy
+            rgb_info_msg.k[2],  # cx
+            rgb_info_msg.k[5],  # cy
+            rgb_info_msg.width,
+            rgb_info_msg.height
+        ], dtype=np.float32)
+
+        rgb_distortion = np.array(rgb_info_msg.d, dtype=np.float32)
+
         # Push to multiprocessing queue
-        self.save_queue.put_nowait((frame_idx, cv_depth, cv_rgb, pose_matrix, intrinsics))
+        self.save_queue.put_nowait((
+            frame_idx,
+            cv_depth,
+            cv_rgb,
+            pose_matrix,
+            depth_intrinsics,
+            depth_distortion,
+            rgb_intrinsics,
+            rgb_distortion
+        ))
 
         self.frame_count += 1
 
     def _disk_writer_worker(self):
-        """Runs in a separate process (true parallelism)."""
+        """Runs in a separate process."""
         while True:
-            frame_idx, cv_depth, cv_rgb, pose_matrix, intrinsics = self.save_queue.get()
+            (frame_idx, cv_depth, cv_rgb, pose_matrix,
+             depth_intrinsics, depth_distortion,
+             rgb_intrinsics, rgb_distortion) = self.save_queue.get()
 
             np.savez_compressed(
                 os.path.join(self.output_dir, f"{frame_idx}.npz"),
                 depth=cv_depth,
                 rgb=cv_rgb,
                 pose=pose_matrix,
-                intrinsics=intrinsics
+                depth_intrinsics=depth_intrinsics,
+                depth_distortion=depth_distortion,
+                rgb_intrinsics=rgb_intrinsics,
+                rgb_distortion=rgb_distortion
             )
 
     def quaternion_to_matrix(self, x, y, z, w):
