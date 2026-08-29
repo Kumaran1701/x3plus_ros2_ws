@@ -5,21 +5,27 @@ from rclpy.node import Node
 from geometry_msgs.msg import TwistStamped
 from nav_msgs.msg import Odometry
 import math
+from std_msgs.msg import Bool
 
 class EkfMecanumRotationNode(Node):
 
     def __init__(self):
         super().__init__('ekf_mecanum_rotation_node')
+        self.state_capture = False
+        self.state_motion_msg = Bool()
         
         # Publishers and Subscribers
         self.cmd_vel_pub = self.create_publisher(TwistStamped, 'cmd_vel', 10)
         
         # NOTE: If your EKF outputs to a different topic name, change '/odom' to match it
-        self.odom_sub = self.create_subscription(Odometry, '/odom', self.odom_callback, 10)
+        self.odom_sub = self.create_subscription(Odometry, '/odometry/filtered', self.odom_callback, 10)
+
+        self.sub_state_capture = self.create_subscription(Bool, '/state_capture', self.state_capture_callback, 10)
+        self.pub_state_motion = self.create_publisher(Bool, '/state_motion', 10)
         
         # Configuration (Angles in Radians)
         self.target_offset = math.radians(30.0)  # ~0.5236 rad
-        self.rotation_speed = 0.2                # rad/s
+        self.rotation_speed = 0.3                # rad/s
         self.tolerance = math.radians(1.5)       # ~1.5 degree error threshold
         
         # Sequence Definition: [Target relative yaw, Step Name]
@@ -38,6 +44,9 @@ class EkfMecanumRotationNode(Node):
         # Control loop timer (50Hz)
         self.timer = self.create_timer(0.02, self.control_loop)
         self.get_logger().info("EKF Mecanum node started. Waiting for filtered odometry...")
+
+    def state_capture_callback(self, state_capture_msg):
+        self.state_capture = state_capture_msg.data
 
     def quaternion_to_yaw(self, q):
         """Converts quaternion (x, y, z, w) to yaw (rotation around Z-axis)."""
@@ -64,9 +73,17 @@ class EkfMecanumRotationNode(Node):
         if not self.initialized:
             return
 
+        if not self.state_capture:
+            self.get_logger().info("Waiting to save first capture...")
+            return
+
         if self.current_step >= len(self.sequence):
+            
+            self.state_motion_msg.data = False
+            self.pub_state_motion.publish(self.state_motion_msg)
             self.stop_robot()
             self.get_logger().info("EKF-guided sequence successfully completed! Shutting down.")
+            self.get_logger().info("Shutting down TSDFHighSpeedRecorder Node")
             self.destroy_timer(self.timer)
             rclpy.shutdown()
             return
@@ -90,6 +107,9 @@ class EkfMecanumRotationNode(Node):
             self.stop_robot()
             self.get_logger().info(f"Finished: {description} (Current Relative Yaw: {math.degrees(self.current_yaw):.2f}°)")
             self.current_step += 1
+
+        self.state_motion_msg.data = True
+        self.pub_state_motion.publish(self.state_motion_msg)
 
     def stop_robot(self):
         msg = TwistStamped()
