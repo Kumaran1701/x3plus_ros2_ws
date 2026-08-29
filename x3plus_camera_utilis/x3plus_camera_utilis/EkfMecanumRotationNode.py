@@ -25,7 +25,7 @@ class EkfMecanumRotationNode(Node):
         
         # Configuration (Angles in Radians)
         self.target_offset = math.radians(30.0)  # ~0.5236 rad
-        self.rotation_speed = 0.3                # rad/s
+        self.rotation_speed = 0.25                # rad/s
         self.tolerance = math.radians(1.5)       # ~1.5 degree error threshold
         
         # Sequence Definition: [Target relative yaw, Step Name]

@@ -59,11 +59,11 @@ def generate_launch_description():
         description="Enable or disable the depth camera"),
     DeclareLaunchArgument(
         'depth_mode',
-        default_value="WFOV_UNBINNED",
+        default_value="NFOV_UNBINNED",
         description="Set the depth camera mode, which affects FOV, depth range, and camera resolution. See Azure Kinect documentation for full details. Valid options: NFOV_UNBINNED, NFOV_2X2BINNED, WFOV_UNBINNED, WFOV_2X2BINNED, and PASSIVE_IR"),
     DeclareLaunchArgument(
         'depth_unit',
-        default_value="32FC1",
+        default_value="16UC1",
         description='Depth distance units. Options are: "32FC1" (32 bit float metre) or "16UC1" (16 bit integer millimetre)'),
     DeclareLaunchArgument(
         'color_enabled',
