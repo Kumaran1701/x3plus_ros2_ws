@@ -9,6 +9,7 @@ from sensor_msgs.msg import Image, CameraInfo
 from cv_bridge import CvBridge
 from message_filters import Subscriber, ApproximateTimeSynchronizer
 from tf2_ros import Buffer, TransformListener, TransformException
+from std_msgs.msg import Bool
 
 
 class TSDFHighSpeedRecorder(Node):
@@ -36,6 +37,12 @@ class TSDFHighSpeedRecorder(Node):
         self.worker = mp.Process(target=self._disk_writer_worker, daemon=True)
         self.worker.start()
 
+        self.state_capture = False
+        self.state_motion = False
+
+        self.pub_state_capture_ = self.create_publisher(Bool, '/state_capture', 10)
+        self.sub_state_motion_ = self.create_subscription(Bool, '/state_motion', self.state_motion_callback, 10)
+
         # TF listener
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -59,77 +66,86 @@ class TSDFHighSpeedRecorder(Node):
         self.get_logger().info("Recorder started.")
         self.get_logger().info("Saving depth + RGB + both intrinsics.")
 
+    def state_motion_callback(self, state_motion_msg):
+        self.state_motion = state_motion_msg.data
+
     def synchronized_callback(self, depth_msg, depth_info_msg,
                               rgb_msg, rgb_info_msg):
 
-        if self.frame_count >= self.total_frames:
-            return
+        if self.frame_count == 0 or self.state_motion is True:            
 
-        timestamp = depth_msg.header.stamp
-        frame_idx = str(self.frame_count).zfill(5)
+            timestamp = depth_msg.header.stamp
+            frame_idx = str(self.frame_count).zfill(5)
 
-        # TF lookup: world_frame -> depth_camera_link
-        try:
-            tf_transform = self.tf_buffer.lookup_transform(
-                self.world_frame,
-                self.camera_frame,
-                timestamp,
-                timeout=rclpy.duration.Duration(seconds=0.05)
-            )
-        except TransformException:
-            return
+            # TF lookup: world_frame -> depth_camera_link
+            try:
+                tf_transform = self.tf_buffer.lookup_transform(
+                    self.world_frame,
+                    self.camera_frame,
+                    timestamp,
+                    timeout=rclpy.duration.Duration(seconds=0.05)
+                )
+            except TransformException:
+                return
 
-        t = tf_transform.transform.translation
-        q = tf_transform.transform.rotation
+            t = tf_transform.transform.translation
+            q = tf_transform.transform.rotation
 
-        pose_matrix = np.eye(4, dtype=np.float32)
-        pose_matrix[:3, :3] = self.quaternion_to_matrix(q.x, q.y, q.z, q.w)
-        pose_matrix[:3, 3] = [t.x, t.y, t.z]
+            pose_matrix = np.eye(4, dtype=np.float32)
+            pose_matrix[:3, :3] = self.quaternion_to_matrix(q.x, q.y, q.z, q.w)
+            pose_matrix[:3, 3] = [t.x, t.y, t.z]
 
-        # Convert images
-        try:
-            cv_depth = self.bridge.imgmsg_to_cv2(depth_msg, desired_encoding="16UC1")
-            cv_rgb = self.bridge.imgmsg_to_cv2(rgb_msg, desired_encoding="bgr8")
-        except Exception:
-            return
+            # Convert images
+            try:
+                cv_depth = self.bridge.imgmsg_to_cv2(depth_msg, desired_encoding="16UC1")
+                cv_rgb = self.bridge.imgmsg_to_cv2(rgb_msg, desired_encoding="bgr8")
+            except Exception:
+                return
 
-        # Depth intrinsics
-        depth_intrinsics = np.array([
-            depth_info_msg.k[0],  # fx
-            depth_info_msg.k[4],  # fy
-            depth_info_msg.k[2],  # cx
-            depth_info_msg.k[5],  # cy
-            depth_info_msg.width,
-            depth_info_msg.height
-        ], dtype=np.float32)
+            # Depth intrinsics
+            depth_intrinsics = np.array([
+                depth_info_msg.k[0],  # fx
+                depth_info_msg.k[4],  # fy
+                depth_info_msg.k[2],  # cx
+                depth_info_msg.k[5],  # cy
+                depth_info_msg.width,
+                depth_info_msg.height
+            ], dtype=np.float32)
 
-        depth_distortion = np.array(depth_info_msg.d, dtype=np.float32)
+            depth_distortion = np.array(depth_info_msg.d, dtype=np.float32)
 
-        # RGB intrinsics
-        rgb_intrinsics = np.array([
-            rgb_info_msg.k[0],  # fx
-            rgb_info_msg.k[4],  # fy
-            rgb_info_msg.k[2],  # cx
-            rgb_info_msg.k[5],  # cy
-            rgb_info_msg.width,
-            rgb_info_msg.height
-        ], dtype=np.float32)
+            # RGB intrinsics
+            rgb_intrinsics = np.array([
+                rgb_info_msg.k[0],  # fx
+                rgb_info_msg.k[4],  # fy
+                rgb_info_msg.k[2],  # cx
+                rgb_info_msg.k[5],  # cy
+                rgb_info_msg.width,
+                rgb_info_msg.height
+            ], dtype=np.float32)
 
-        rgb_distortion = np.array(rgb_info_msg.d, dtype=np.float32)
+            rgb_distortion = np.array(rgb_info_msg.d, dtype=np.float32)
 
-        # Push to multiprocessing queue
-        self.save_queue.put_nowait((
-            frame_idx,
-            cv_depth,
-            cv_rgb,
-            pose_matrix,
-            depth_intrinsics,
-            depth_distortion,
-            rgb_intrinsics,
-            rgb_distortion
-        ))
+            # Push to multiprocessing queue
+            self.save_queue.put_nowait((
+                frame_idx,
+                cv_depth,
+                cv_rgb,
+                pose_matrix,
+                depth_intrinsics,
+                depth_distortion,
+                rgb_intrinsics,
+                rgb_distortion
+            ))
+            if self.frame_count == 0:
+                self.get_logger().info("Saved First Capture and setting state_capture -> True")
+            state_capture_msg = Bool()
+            state_capture_msg.data = True
+            self.pub_state_capture_.publish(state_capture_msg)
+            self.frame_count += 1
+        else:
+            self.get_logger().info("Waiting for state_motion to become True ")
 
-        self.frame_count += 1
 
     def _disk_writer_worker(self):
         """Runs in a separate process."""
