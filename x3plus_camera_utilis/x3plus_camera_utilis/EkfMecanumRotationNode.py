@@ -4,24 +4,18 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import TwistStamped
 from nav_msgs.msg import Odometry
-from std_msgs.msg import Bool
 import math
-
 
 class EkfMecanumRotationNode(Node):
 
     def __init__(self):
         super().__init__('ekf_mecanum_rotation_node')
         
-        # Publishers
+        # Publishers and Subscribers
         self.cmd_vel_pub = self.create_publisher(TwistStamped, 'cmd_vel', 10)
-        self.rotation_finished_pub = self.create_publisher(Bool, '/tsdf_rotation_finished', 10)
-
-        # Subscribers
-        self.odom_sub = self.create_subscription(Odometry, '/odom', self.odom_callback, 10)
-        self.capture_started_sub = self.create_subscription(
-            Bool, '/tsdf_capture_started', self.capture_started_cb, 10
-        )
+        
+        # NOTE: If your EKF outputs to a different topic name, change '/odom' to match it
+        self.odom_sub = self.create_subscription(Odometry, '/odometry/filtered', self.odom_callback, 10)
         
         # Configuration (Angles in Radians)
         self.target_offset = math.radians(30.0)  # ~0.5236 rad
@@ -41,17 +35,9 @@ class EkfMecanumRotationNode(Node):
         self.start_yaw = None
         self.initialized = False
 
-        # Sync flag: wait for recorder to start
-        self.capture_started = False
-
         # Control loop timer (50Hz)
         self.timer = self.create_timer(0.02, self.control_loop)
-        self.get_logger().info("EKF Mecanum node started. Waiting for filtered odometry and capture_started...")
-
-    def capture_started_cb(self, msg: Bool):
-        if msg.data and not self.capture_started:
-            self.capture_started = True
-            self.get_logger().info("TSDF recorder reported capture_started — beginning rotation sequence.")
+        self.get_logger().info("EKF Mecanum node started. Waiting for filtered odometry...")
 
     def quaternion_to_yaw(self, q):
         """Converts quaternion (x, y, z, w) to yaw (rotation around Z-axis)."""
@@ -70,19 +56,17 @@ class EkfMecanumRotationNode(Node):
             self.initialized = True
             
         # Calculate the current yaw relative to our starting orientation
+        # Normalize the angle variation to keep it within [-pi, pi]
         raw_diff = absolute_yaw - self.start_yaw
         self.current_yaw = math.atan2(math.sin(raw_diff), math.cos(raw_diff))
 
     def control_loop(self):
-        # Wait until we have odometry and capture has started
-        if not self.initialized or not self.capture_started:
+        if not self.initialized:
             return
 
         if self.current_step >= len(self.sequence):
-            # Sequence done: notify recorder and shut down
             self.stop_robot()
-            self.rotation_finished_pub.publish(Bool(data=True))
-            self.get_logger().info("EKF-guided sequence completed. rotation_finished published. Shutting down.")
+            self.get_logger().info("EKF-guided sequence successfully completed! Shutting down.")
             self.destroy_timer(self.timer)
             rclpy.shutdown()
             return
@@ -104,9 +88,7 @@ class EkfMecanumRotationNode(Node):
             self.cmd_vel_pub.publish(msg)
         else:
             self.stop_robot()
-            self.get_logger().info(
-                f"Finished: {description} (Current Relative Yaw: {math.degrees(self.current_yaw):.2f}°)"
-            )
+            self.get_logger().info(f"Finished: {description} (Current Relative Yaw: {math.degrees(self.current_yaw):.2f}°)")
             self.current_step += 1
 
     def stop_robot(self):
