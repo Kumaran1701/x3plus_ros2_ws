@@ -17,6 +17,7 @@ install(PROGRAMS
   ${PROJECT_NAME}/all_planes.py
   ${PROJECT_NAME}/kinect_astra_calibration.py
   ${PROJECT_NAME}/save_raw_pcd.py
+  ${PROJECT_NAME}/EkfMecanumRotationNode.py
   DESTINATION lib/${PROJECT_NAME}
 )
 if(BUILD_TESTING)
