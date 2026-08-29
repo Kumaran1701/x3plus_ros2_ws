@@ -9,6 +9,7 @@ from sensor_msgs.msg import Image, CameraInfo
 from cv_bridge import CvBridge
 from message_filters import Subscriber, ApproximateTimeSynchronizer
 from tf2_ros import Buffer, TransformListener, TransformException
+from std_msgs.msg import Bool
 
 
 class TSDFHighSpeedRecorder(Node):
@@ -31,10 +32,19 @@ class TSDFHighSpeedRecorder(Node):
 
         os.makedirs(self.output_dir, exist_ok=True)
 
-        # Multiprocessing queue
+        # Multiprocessing queue + worker
         self.save_queue = mp.Queue(maxsize=200)
         self.worker = mp.Process(target=self._disk_writer_worker, daemon=True)
         self.worker.start()
+
+        # Sync flags
+        self.capture_started_pub = self.create_publisher(Bool, '/tsdf_capture_started', 10)
+        self.rotation_finished_sub = self.create_subscription(
+            Bool, '/tsdf_rotation_finished', self.rotation_finished_cb, 10
+        )
+        self.rotation_finished = False
+        self.stop_after_next_frame = False
+        self.stopped = False
 
         # TF listener
         self.tf_buffer = Buffer()
@@ -56,13 +66,26 @@ class TSDFHighSpeedRecorder(Node):
         )
         self.ts.registerCallback(self.synchronized_callback)
 
-        self.get_logger().info("Recorder started.")
-        self.get_logger().info("Saving depth + RGB + both intrinsics.")
+        self.get_logger().info("TSDF recorder started.")
+        self.get_logger().info("Saving depth + RGB + intrinsics + pose.")
+
+    def rotation_finished_cb(self, msg: Bool):
+        if msg.data and not self.rotation_finished:
+            self.rotation_finished = True
+            self.stop_after_next_frame = True
+            self.get_logger().info("Rotation finished signal received — will stop after next valid frame.")
 
     def synchronized_callback(self, depth_msg, depth_info_msg,
                               rgb_msg, rgb_info_msg):
 
+        # If we've decided to stop, ignore further callbacks
+        if self.stopped:
+            return
+
+        # Optional upper bound
         if self.frame_count >= self.total_frames:
+            self.get_logger().info("Reached total_frames_to_save limit — stopping capture.")
+            self.stopped = True
             return
 
         timestamp = depth_msg.header.stamp
@@ -129,7 +152,19 @@ class TSDFHighSpeedRecorder(Node):
             rgb_distortion
         ))
 
+        # First frame saved → notify rotation node
+        if self.frame_count == 0:
+            self.capture_started_pub.publish(Bool(data=True))
+            self.get_logger().info("First frame saved — capture_started published.")
+
         self.frame_count += 1
+
+        # If rotation has finished and we wanted one last frame, stop now
+        if self.stop_after_next_frame and self.rotation_finished:
+            self.get_logger().info(
+                f"Final frame {frame_idx}.npz queued after rotation finished — stopping further capture."
+            )
+            self.stopped = True
 
     def _disk_writer_worker(self):
         """Runs in a separate process."""
@@ -154,7 +189,7 @@ class TSDFHighSpeedRecorder(Node):
         invs = 1.0 / (sqx + sqy + sqz + sqw)
         m00 = (sqx - sqy - sqz + sqw) * invs
         m11 = (-sqx + sqy - sqz + sqw) * invs
-        m22 = (-sqx - sqy + sqz + sqw) * invs
+        m22 = (-sqx - sqx + sqz + sqw) * invs
         tmp1 = x*y; tmp2 = z*w
         m10 = 2.0 * (tmp1 + tmp2) * invs
         m01 = 2.0 * (tmp1 - tmp2) * invs
