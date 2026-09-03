@@ -1,38 +1,30 @@
 #!/usr/bin/env python3
 """
-TSDF capture recorder - stop-and-go handshake version.
+TSDF capture recorder - continuous-motion version.
 
-Redesigned to fix a data-corruption bug found empirically: during fast
-continuous rotation, the depth sensor pipeline fell behind and
-republished the last-rendered depth frame under a fresh timestamp while
-TF (computed independently from joint/odometry state) kept reporting
-the robot's true, moving pose. ApproximateTimeSynchronizer has no way
-to detect this - it only checks that timestamps line up, not that
-content actually changed - so stale depth got silently saved paired
-with a genuinely-updated pose. In the fused reconstruction this showed
-up as the same real object duplicated at multiple positions.
+Reverted from a stop-and-go handshake design: that eliminated the
+stale-frame bug but required ~150+ stop/start cycles for a mecanum
+base, which is exactly the kind of motion mecanum wheels handle worst
+(each start/stop is a slip opportunity). This version captures
+continuously during a smooth sweep instead, and relies on two
+independent checks per candidate frame - no handshake, no waypoints,
+no stopping:
 
-Fix, two layers:
-  1. Protocol: capturing now only happens once the motion node reports
-     it has stopped and settled at a waypoint (see
-     ekf_mecanum_rotation_node.py), not continuously during motion.
-     This eliminates motion blur and removes almost all of the odds of
-     a stale-frame race in the first place.
-  2. Verification: even while "settled", this node refuses to accept a
-     frame unless its depth content actually differs from the
-     previously SAVED frame by more than min_depth_change_mm, once the
-     commanded pose has moved by more than min_angle_deg_between_captures.
-     This is a hard content-level check, so it catches a frozen sensor
-     even if the handshake protocol above is ever bypassed or misconfigured.
+  1. Angular spacing: only consider saving once the camera has moved
+     more than min_angle_deg_between_captures since the last SAVED frame.
+     This alone throttles capture rate to match desired density
+     regardless of how fast or slow the sweep happens to be.
 
-Handshake:
-  motion node -> /ready_for_capture (Bool): True once stopped + settled
-                 at a waypoint and requesting a capture there.
-  this node   -> /capture_ack (Int32): monotonically increasing count,
-                 published once a frame has been validated and saved.
-                 The motion node waits for this count to increase before
-                 advancing to the next waypoint (with a timeout fallback
-                 so a single bad waypoint can't deadlock the whole run).
+  2. Content freshness: once that much motion has happened, the new
+     frame's depth must actually differ from the last saved frame by
+     more than min_depth_change_mm. If the pose moved but depth content
+     didn't, the sensor pipeline has fallen behind (this is exactly the
+     bug that produced a duplicated object in the fused reconstruction
+     previously) - skip and wait for a genuinely new frame instead of
+     silently saving a stale one.
+
+No stopping is required for either check - both operate purely on
+already-published frames while the base keeps sweeping smoothly.
 """
 
 import rclpy
@@ -46,21 +38,15 @@ from sensor_msgs.msg import Image, CameraInfo
 from cv_bridge import CvBridge
 from message_filters import Subscriber, ApproximateTimeSynchronizer
 from tf2_ros import Buffer, TransformListener, TransformException
-from std_msgs.msg import Bool, Int32
+from std_msgs.msg import Bool
 
 
 def disk_writer_worker(queue):
     """Runs in a separate process. Drains the queue until it receives
-    the sentinel value None, then exits cleanly.
-
-    Does NOT depend on any live attribute of the parent Node.
-    multiprocessing.Process forks a SNAPSHOT of the parent's memory, so
-    attributes like self.frame_count or self.state_motion in the parent
-    keep changing after the fork but the child process never sees those
-    updates. The previous version's loop condition relied on exactly
-    that live state and was effectively dead logic - a separate,
-    unrelated correctness bug worth fixing alongside the stale-frame issue.
-    """
+    the sentinel value None, then exits cleanly - does not depend on
+    any live attribute of the parent Node (multiprocessing.Process
+    forks a snapshot, so attributes on the parent keep changing after
+    the fork but the child never sees those updates)."""
     while True:
         item = queue.get()
         if item is None:
@@ -89,9 +75,9 @@ class TSDFHighSpeedRecorder(Node):
         self.declare_parameter('camera_frame', 'depth_camera_link')
         self.declare_parameter('output_directory', 'tsdf_dataset')
         self.declare_parameter('max_captures', 0)               # 0 = unlimited
-        self.declare_parameter('min_angle_deg_between_captures', 1.0)
-        self.declare_parameter('min_depth_change_mm', 3.0)       # tune to your sensor's noise floor
-        self.declare_parameter('stale_retry_timeout_sec', 2.0)   # give up on a waypoint after this long
+        self.declare_parameter('min_angle_deg_between_captures', 1.5)
+        self.declare_parameter('min_depth_change_mm', 3.0)      # tune to your sensor's noise floor
+        self.declare_parameter('recording_enabled', True)       # motion node can set this False when done
 
         self.world_frame = self.get_parameter('world_frame').value
         self.camera_frame = self.get_parameter('camera_frame').value
@@ -99,33 +85,29 @@ class TSDFHighSpeedRecorder(Node):
         self.max_captures = self.get_parameter('max_captures').value
         self.min_angle_deg = self.get_parameter('min_angle_deg_between_captures').value
         self.min_depth_change_mm = self.get_parameter('min_depth_change_mm').value
-        self.stale_retry_timeout_sec = self.get_parameter('stale_retry_timeout_sec').value
+        self.recording_enabled = self.get_parameter('recording_enabled').value
 
         self.frame_count = 0
         self.bridge = CvBridge()
 
         os.makedirs(self.output_dir, exist_ok=True)
 
-        # Multiprocessing queue + writer process (see disk_writer_worker docstring)
         self.save_queue = mp.Queue(maxsize=200)
         self.worker = mp.Process(target=disk_writer_worker, args=(self.save_queue,), daemon=True)
         self.worker.start()
 
-        # Handshake state
-        self.ready_for_capture = False
         self.last_saved_depth = None
         self.last_saved_yaw_deg = None
-        self.awaiting_since = None  # ROS time when the current waypoint's capture request started
 
-        self.pub_capture_ack = self.create_publisher(Int32, '/capture_ack', 10)
-        self.sub_ready_for_capture = self.create_subscription(
-            Bool, '/ready_for_capture', self.ready_for_capture_callback, 10)
+        # Motion node publishes False once its sequence completes, to stop
+        # the recorder cleanly. Optional - if never received, max_captures
+        # (if set) or simply killing the node both work fine too.
+        self.sub_recording_enabled = self.create_subscription(
+            Bool, '/recording_enabled', self.recording_enabled_callback, 10)
 
-        # TF listener
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
-        # Subscribers
         self.sub_depth = Subscriber(self, Image, '/depth/image_raw')
         self.sub_depth_info = Subscriber(self, CameraInfo, '/depth/camera_info')
         self.sub_rgb = Subscriber(self, Image, '/rgb/image_raw')
@@ -139,29 +121,24 @@ class TSDFHighSpeedRecorder(Node):
         )
         self.ts.registerCallback(self.synchronized_callback)
 
-        self.get_logger().info("Recorder started (stop-and-go handshake mode).")
+        self.get_logger().info("Recorder started (continuous-motion mode).")
 
     # ------------------------------------------------------------------
 
-    def ready_for_capture_callback(self, msg):
-        was_ready = self.ready_for_capture
-        self.ready_for_capture = msg.data
-        if self.ready_for_capture and not was_ready:
-            self.awaiting_since = self.get_clock().now()
+    def recording_enabled_callback(self, msg):
+        self.recording_enabled = msg.data
 
     @staticmethod
     def yaw_deg_from_matrix(R):
         return np.degrees(np.arctan2(R[1, 0], R[0, 0]))
 
     def synchronized_callback(self, depth_msg, depth_info_msg, rgb_msg, rgb_info_msg):
-        if not self.ready_for_capture:
-            return  # only ever capture while the motion node reports stopped + settled
-
+        if not self.recording_enabled:
+            return
         if self.max_captures and self.frame_count >= self.max_captures:
-            return  # safety cap reached
+            return
 
         timestamp = depth_msg.header.stamp
-
         try:
             tf_transform = self.tf_buffer.lookup_transform(
                 self.world_frame, self.camera_frame, timestamp,
@@ -172,11 +149,18 @@ class TSDFHighSpeedRecorder(Node):
 
         t = tf_transform.transform.translation
         q = tf_transform.transform.rotation
-
         pose_matrix = np.eye(4, dtype=np.float32)
         pose_matrix[:3, :3] = self.quaternion_to_matrix(q.x, q.y, q.z, q.w)
         pose_matrix[:3, 3] = [t.x, t.y, t.z]
         current_yaw_deg = self.yaw_deg_from_matrix(pose_matrix[:3, :3])
+
+        # Angular spacing gate - skip entirely if we haven't moved enough
+        # yet. This is what controls capture density (no handshake needed).
+        angle_moved = None
+        if self.last_saved_yaw_deg is not None:
+            angle_moved = abs(current_yaw_deg - self.last_saved_yaw_deg)
+            if angle_moved < self.min_angle_deg:
+                return
 
         try:
             cv_depth = self.bridge.imgmsg_to_cv2(depth_msg, desired_encoding="16UC1")
@@ -184,40 +168,21 @@ class TSDFHighSpeedRecorder(Node):
         except Exception:
             return
 
-        # --- Content-level freshness check ---
-        # Enforced once the commanded pose has moved by more than
-        # min_angle_deg since the last SAVED frame. The very first
-        # capture (nothing saved yet) has nothing to compare against
-        # and is accepted immediately.
-        if self.last_saved_yaw_deg is not None and self.last_saved_depth is not None:
-            angle_moved = abs(current_yaw_deg - self.last_saved_yaw_deg)
-            if angle_moved > self.min_angle_deg:
-                depth_diff = float(np.mean(np.abs(
-                    cv_depth.astype(np.float32) - self.last_saved_depth.astype(np.float32)
-                )))
-                if depth_diff < self.min_depth_change_mm:
-                    # Pose moved but depth content didn't - sensor is stuck.
-                    # Refuse to save. Keep waiting for a genuinely new
-                    # frame, but give up after stale_retry_timeout_sec so
-                    # one bad waypoint can't hang the run forever.
-                    if self.awaiting_since is not None:
-                        elapsed = (self.get_clock().now() - self.awaiting_since).nanoseconds / 1e9
-                        if elapsed > self.stale_retry_timeout_sec:
-                            self.get_logger().warn(
-                                f"Depth frozen for {elapsed:.1f}s at yaw={current_yaw_deg:.2f} deg "
-                                f"(diff={depth_diff:.2f}mm < {self.min_depth_change_mm}mm threshold). "
-                                f"Giving up on this waypoint - it will be a gap in the dataset "
-                                f"rather than a silently corrupted duplicate."
-                            )
-                            self.ready_for_capture = False
-                        else:
-                            self.get_logger().info(
-                                f"Waiting for fresh depth at yaw={current_yaw_deg:.2f} deg "
-                                f"(diff={depth_diff:.2f}mm, retrying)..."
-                            )
-                    return
+        # Content freshness gate - the pose moved enough, but did the
+        # depth actually change? If not, the sensor pipeline has fallen
+        # behind the motion - skip rather than save a stale/duplicated frame.
+        if self.last_saved_depth is not None:
+            depth_diff = float(np.mean(np.abs(
+                cv_depth.astype(np.float32) - self.last_saved_depth.astype(np.float32)
+            )))
+            if depth_diff < self.min_depth_change_mm:
+                self.get_logger().warn(
+                    f"Skipping frame at yaw={current_yaw_deg:.2f} deg - pose moved "
+                    f"{angle_moved:.2f} deg but depth diff only {depth_diff:.2f}mm "
+                    f"(sensor may be lagging the motion)."
+                )
+                return
 
-        # --- Passed all checks: accept and queue this frame ---
         frame_idx = str(self.frame_count).zfill(5)
 
         depth_intrinsics = np.array([
@@ -247,11 +212,6 @@ class TSDFHighSpeedRecorder(Node):
         self.last_saved_depth = cv_depth.copy()
         self.last_saved_yaw_deg = current_yaw_deg
         self.frame_count += 1
-        self.ready_for_capture = False  # consumed - wait for the next explicit request
-
-        ack_msg = Int32()
-        ack_msg.data = self.frame_count
-        self.pub_capture_ack.publish(ack_msg)
         self.get_logger().info(f"Saved capture {frame_idx} at yaw={current_yaw_deg:.2f} deg")
 
     def quaternion_to_matrix(self, x, y, z, w):
