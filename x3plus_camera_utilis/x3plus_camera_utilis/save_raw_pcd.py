@@ -143,12 +143,7 @@ class TSDFHighSpeedRecorder(Node):
             return
 
         # Content freshness gate (retained to filter sensor lag)
-        if self.last_saved_depth is not None:
-            depth_diff = float(np.mean(np.abs(
-                cv_depth.astype(np.float32) - self.last_saved_depth.astype(np.float32)
-            )))
-            if depth_diff < self.min_depth_change_mm:
-                return
+        
 
         frame_idx = str(self.frame_count).zfill(5)
 
