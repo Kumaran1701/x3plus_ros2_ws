@@ -89,25 +89,33 @@ class TSDFHighSpeedRecorder(Node):
         )
         self.ts.registerCallback(self.synchronized_callback)
 
-        self.get_logger().info("Recorder updated for STRAFE linear continuous tracking.")
+        self.depth_info_received = False
+        self.depth_intrinsics = None
+        self.depth_distortion = None
+        self.sub_depth_info = self.create_subscription(
+            CameraInfo, '/depth/camera_info', self.depth_info_callback, 10)
 
-    def recording_enabled_callback(self, msg):
-        # Read the incoming motion node state
-        new_state = msg.data
-        
-        # Only allow a shutdown command (False) if we have actually captured 
-        # some frames. This prevents an idle or resting motion node from 
-        # instantly killing the recorder at startup.
-        if not new_state and self.frame_count > 0:
-            self.get_logger().info("Recording finished by motion node request. Sending shutdown token...")
-            self.recording_enabled = False
-            self.save_queue.put(None)
-        elif new_state:
-            self.recording_enabled = True
+        # 2. Main execution hook triggered instantly whenever a depth frame lands
+        self.sub_depth = self.create_subscription(
+            Image, '/depth/image_raw', self.depth_callback, 10)
+
+        self.get_logger().info("Recorder updated for STRAFE linear continuous tracking (Depth-Only Mode).")
+
+    def depth_info_callback(self, msg):
+        """Caches camera parameters once and unsubscribes to save CPU cycles."""
+        if not self.depth_info_received:
+            self.depth_intrinsics = np.array([
+                msg.k[0], msg.k[4], msg.k[2], msg.k[5],
+                msg.width, msg.height
+            ], dtype=np.float32)
+            self.depth_distortion = np.array(msg.d, dtype=np.float32)
+            self.depth_info_received = True
+            self.get_logger().info("Successfully cached Depth Camera Intrinsics.")
 
 
-    def synchronized_callback(self, depth_msg, depth_info_msg, rgb_msg, rgb_info_msg):
-        if not self.recording_enabled:
+    def depth_callback(self, depth_msg):
+        """Processes depth maps directly without waiting for lagging RGB frames."""
+        if not self.recording_enabled or not self.depth_info_received:
             return
         if self.max_captures and self.frame_count >= self.max_captures:
             return
@@ -123,14 +131,13 @@ class TSDFHighSpeedRecorder(Node):
 
         t = tf_transform.transform.translation
         q = tf_transform.transform.rotation
-        
         current_position = np.array([t.x, t.y, t.z], dtype=np.float32)
 
-        # FIX: Linear displacement space tracking gate
+        # Displacement gate tracking
         if self.last_saved_position is not None:
             distance_moved = np.linalg.norm(current_position - self.last_saved_position)
             if distance_moved < self.min_translation_m:
-                return  # Skip processing, robot hasn't strafed far enough yet
+                return
 
         pose_matrix = np.eye(4, dtype=np.float32)
         pose_matrix[:3, :3] = self.quaternion_to_matrix(q.x, q.y, q.z, q.w)
@@ -138,44 +145,27 @@ class TSDFHighSpeedRecorder(Node):
 
         try:
             cv_depth = self.bridge.imgmsg_to_cv2(depth_msg, desired_encoding="16UC1")
-            cv_rgb = self.bridge.imgmsg_to_cv2(rgb_msg, desired_encoding="bgr8")
+            # Create a lightweight dummy color image inside the array matrix to keep structure intact
+            cv_rgb = np.zeros((depth_msg.height, depth_msg.width, 3), dtype=np.uint8)
         except Exception:
             return
 
-        # Content freshness gate (retained to filter sensor lag)
-        
-
         frame_idx = str(self.frame_count).zfill(5)
-
-        depth_intrinsics = np.array([
-            depth_info_msg.k[0], depth_info_msg.k[4],
-            depth_info_msg.k[2], depth_info_msg.k[5],
-            depth_info_msg.width, depth_info_msg.height
-        ], dtype=np.float32)
-        depth_distortion = np.array(depth_info_msg.d, dtype=np.float32)
-
-        rgb_intrinsics = np.array([
-            rgb_info_msg.k[0], rgb_info_msg.k[4],
-            rgb_info_msg.k[2], rgb_info_msg.k[5],
-            rgb_info_msg.width, rgb_info_msg.height
-        ], dtype=np.float32)
-        rgb_distortion = np.array(rgb_info_msg.d, dtype=np.float32)
 
         try:
             self.save_queue.put_nowait((
                 frame_idx, cv_depth, cv_rgb, pose_matrix,
-                depth_intrinsics, depth_distortion,
-                rgb_intrinsics, rgb_distortion, self.output_dir
+                self.depth_intrinsics, self.depth_distortion,
+                self.depth_intrinsics, self.depth_distortion, self.output_dir
             ))
         except Exception:
             self.get_logger().warn("Save queue full - dropping frame.")
             return
 
-        self.last_saved_depth = cv_depth.copy()
         self.last_saved_position = current_position.copy()
         self.frame_count += 1
         self.get_logger().info(f"Saved capture {frame_idx} at translation offset Y={t.y:.3f}m")
-
+        
     def quaternion_to_matrix(self, x, y, z, w):
         sqw = w*w; sqx = x*x; sqy = y*y; sqz = z*z
         invs = 1.0 / (sqx + sqy + sqz + sqw)
