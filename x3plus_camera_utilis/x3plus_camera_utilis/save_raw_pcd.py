@@ -1,35 +1,6 @@
 #!/usr/bin/env python3
-"""
-TSDF capture recorder - continuous-motion version.
-
-Reverted from a stop-and-go handshake design: that eliminated the
-stale-frame bug but required ~150+ stop/start cycles for a mecanum
-base, which is exactly the kind of motion mecanum wheels handle worst
-(each start/stop is a slip opportunity). This version captures
-continuously during a smooth sweep instead, and relies on two
-independent checks per candidate frame - no handshake, no waypoints,
-no stopping:
-
-  1. Angular spacing: only consider saving once the camera has moved
-     more than min_angle_deg_between_captures since the last SAVED frame.
-     This alone throttles capture rate to match desired density
-     regardless of how fast or slow the sweep happens to be.
-
-  2. Content freshness: once that much motion has happened, the new
-     frame's depth must actually differ from the last saved frame by
-     more than min_depth_change_mm. If the pose moved but depth content
-     didn't, the sensor pipeline has fallen behind (this is exactly the
-     bug that produced a duplicated object in the fused reconstruction
-     previously) - skip and wait for a genuinely new frame instead of
-     silently saving a stale one.
-
-No stopping is required for either check - both operate purely on
-already-published frames while the base keeps sweeping smoothly.
-"""
-
 import rclpy
 from rclpy.node import Node
-from rclpy.duration import Duration
 import numpy as np
 import os
 import multiprocessing as mp
@@ -38,15 +9,13 @@ from sensor_msgs.msg import Image, CameraInfo
 from cv_bridge import CvBridge
 from message_filters import Subscriber, ApproximateTimeSynchronizer
 from tf2_ros import Buffer, TransformListener, TransformException
+from rclpy.duration import Duration
 from std_msgs.msg import Bool
 
 
 def disk_writer_worker(queue):
     """Runs in a separate process. Drains the queue until it receives
-    the sentinel value None, then exits cleanly - does not depend on
-    any live attribute of the parent Node (multiprocessing.Process
-    forks a snapshot, so attributes on the parent keep changing after
-    the fork but the child never sees those updates)."""
+    the sentinel value None, then exits cleanly."""
     while True:
         item = queue.get()
         if item is None:
@@ -75,15 +44,15 @@ class TSDFHighSpeedRecorder(Node):
         self.declare_parameter('camera_frame', 'depth_camera_link')
         self.declare_parameter('output_directory', 'tsdf_dataset')
         self.declare_parameter('max_captures', 0)               # 0 = unlimited
-        self.declare_parameter('min_angle_deg_between_captures', 1.5)
+        self.declare_parameter('min_translation_m_between_captures', 0.01) # 1cm of linear movement
         self.declare_parameter('min_depth_change_mm', 3.0)      # tune to your sensor's noise floor
-        self.declare_parameter('recording_enabled', True)       # motion node can set this False when done
+        self.declare_parameter('recording_enabled', True)       # motion node sets this False when done
 
         self.world_frame = self.get_parameter('world_frame').value
         self.camera_frame = self.get_parameter('camera_frame').value
         self.output_dir = self.get_parameter('output_directory').value
         self.max_captures = self.get_parameter('max_captures').value
-        self.min_angle_deg = self.get_parameter('min_angle_deg_between_captures').value
+        self.min_translation_m = self.get_parameter('min_translation_m_between_captures').value
         self.min_depth_change_mm = self.get_parameter('min_depth_change_mm').value
         self.recording_enabled = self.get_parameter('recording_enabled').value
 
@@ -96,12 +65,11 @@ class TSDFHighSpeedRecorder(Node):
         self.worker = mp.Process(target=disk_writer_worker, args=(self.save_queue,), daemon=True)
         self.worker.start()
 
+        # Target historical references swapped for linear spatial tracking
         self.last_saved_depth = None
-        self.last_saved_yaw_deg = None
+        self.last_saved_position = None  # Tracks [x, y, z] arrays
 
-        # Motion node publishes False once its sequence completes, to stop
-        # the recorder cleanly. Optional - if never received, max_captures
-        # (if set) or simply killing the node both work fine too.
+        # Motion node status interface
         self.sub_recording_enabled = self.create_subscription(
             Bool, '/recording_enabled', self.recording_enabled_callback, 10)
 
@@ -121,16 +89,14 @@ class TSDFHighSpeedRecorder(Node):
         )
         self.ts.registerCallback(self.synchronized_callback)
 
-        self.get_logger().info("Recorder started (continuous-motion mode).")
-
-    # ------------------------------------------------------------------
+        self.get_logger().info("Recorder updated for STRAFE linear continuous tracking.")
 
     def recording_enabled_callback(self, msg):
         self.recording_enabled = msg.data
-
-    @staticmethod
-    def yaw_deg_from_matrix(R):
-        return np.degrees(np.arctan2(R[1, 0], R[0, 0]))
+        # If motion node sets to False, trigger clean worker shutdown
+        if not self.recording_enabled:
+            self.get_logger().info("Recording finished. Sending shutdown token to worker...")
+            self.save_queue.put(None)
 
     def synchronized_callback(self, depth_msg, depth_info_msg, rgb_msg, rgb_info_msg):
         if not self.recording_enabled:
@@ -149,18 +115,18 @@ class TSDFHighSpeedRecorder(Node):
 
         t = tf_transform.transform.translation
         q = tf_transform.transform.rotation
+        
+        current_position = np.array([t.x, t.y, t.z], dtype=np.float32)
+
+        # FIX: Linear displacement space tracking gate
+        if self.last_saved_position is not None:
+            distance_moved = np.linalg.norm(current_position - self.last_saved_position)
+            if distance_moved < self.min_translation_m:
+                return  # Skip processing, robot hasn't strafed far enough yet
+
         pose_matrix = np.eye(4, dtype=np.float32)
         pose_matrix[:3, :3] = self.quaternion_to_matrix(q.x, q.y, q.z, q.w)
-        pose_matrix[:3, 3] = [t.x, t.y, t.z]
-        current_yaw_deg = self.yaw_deg_from_matrix(pose_matrix[:3, :3])
-
-        # Angular spacing gate - skip entirely if we haven't moved enough
-        # yet. This is what controls capture density (no handshake needed).
-        angle_moved = None
-        if self.last_saved_yaw_deg is not None:
-            angle_moved = abs(current_yaw_deg - self.last_saved_yaw_deg)
-            if angle_moved < self.min_angle_deg:
-                return
+        pose_matrix[:3, 3] = current_position
 
         try:
             cv_depth = self.bridge.imgmsg_to_cv2(depth_msg, desired_encoding="16UC1")
@@ -168,19 +134,12 @@ class TSDFHighSpeedRecorder(Node):
         except Exception:
             return
 
-        # Content freshness gate - the pose moved enough, but did the
-        # depth actually change? If not, the sensor pipeline has fallen
-        # behind the motion - skip rather than save a stale/duplicated frame.
+        # Content freshness gate (retained to filter sensor lag)
         if self.last_saved_depth is not None:
             depth_diff = float(np.mean(np.abs(
                 cv_depth.astype(np.float32) - self.last_saved_depth.astype(np.float32)
             )))
             if depth_diff < self.min_depth_change_mm:
-                self.get_logger().warn(
-                    f"Skipping frame at yaw={current_yaw_deg:.2f} deg - pose moved "
-                    f"{angle_moved:.2f} deg but depth diff only {depth_diff:.2f}mm "
-                    f"(sensor may be lagging the motion)."
-                )
                 return
 
         frame_idx = str(self.frame_count).zfill(5)
@@ -206,13 +165,13 @@ class TSDFHighSpeedRecorder(Node):
                 rgb_intrinsics, rgb_distortion, self.output_dir
             ))
         except Exception:
-            self.get_logger().warn("Save queue full - dropping this frame.")
+            self.get_logger().warn("Save queue full - dropping frame.")
             return
 
         self.last_saved_depth = cv_depth.copy()
-        self.last_saved_yaw_deg = current_yaw_deg
+        self.last_saved_position = current_position.copy()
         self.frame_count += 1
-        self.get_logger().info(f"Saved capture {frame_idx} at yaw={current_yaw_deg:.2f} deg")
+        self.get_logger().info(f"Saved capture {frame_idx} at translation offset Y={t.y:.3f}m")
 
     def quaternion_to_matrix(self, x, y, z, w):
         sqw = w*w; sqx = x*x; sqy = y*y; sqz = z*z
@@ -233,28 +192,17 @@ class TSDFHighSpeedRecorder(Node):
                          [m10, m11, m12],
                          [m20, m21, m22]], dtype=np.float32)
 
-    def shutdown(self):
-        try:
-            self.save_queue.put_nowait(None)
-        except Exception:
-            pass
-        self.worker.join(timeout=5.0)
-
-
 def main(args=None):
     rclpy.init(args=args)
     node = TSDFHighSpeedRecorder()
-    executor = rclpy.executors.MultiThreadedExecutor()
-    executor.add_node(node)
     try:
-        executor.spin()
+        rclpy.spin(node)
     except KeyboardInterrupt:
         pass
     finally:
-        node.shutdown()
+        # Cleanly shut down node structures
         node.destroy_node()
         rclpy.shutdown()
-
 
 if __name__ == '__main__':
     main()
