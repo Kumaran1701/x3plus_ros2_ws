@@ -92,11 +92,19 @@ class TSDFHighSpeedRecorder(Node):
         self.get_logger().info("Recorder updated for STRAFE linear continuous tracking.")
 
     def recording_enabled_callback(self, msg):
-        self.recording_enabled = msg.data
-        # If motion node sets to False, trigger clean worker shutdown
-        if not self.recording_enabled:
-            self.get_logger().info("Recording finished. Sending shutdown token to worker...")
+        # Read the incoming motion node state
+        new_state = msg.data
+        
+        # Only allow a shutdown command (False) if we have actually captured 
+        # some frames. This prevents an idle or resting motion node from 
+        # instantly killing the recorder at startup.
+        if not new_state and self.frame_count > 0:
+            self.get_logger().info("Recording finished by motion node request. Sending shutdown token...")
+            self.recording_enabled = False
             self.save_queue.put(None)
+        elif new_state:
+            self.recording_enabled = True
+
 
     def synchronized_callback(self, depth_msg, depth_info_msg, rgb_msg, rgb_info_msg):
         if not self.recording_enabled:
