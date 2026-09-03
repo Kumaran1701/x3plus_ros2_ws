@@ -119,8 +119,11 @@ class TSDFHighSpeedRecorder(Node):
 
         timestamp = depth_msg.header.stamp
         try:
+            # Passing rclpy.time.Time() tells ROS to give us the absolute latest known transform
             tf_transform = self.tf_buffer.lookup_transform(
-                self.world_frame, self.camera_frame, timestamp,
+                self.world_frame, 
+                self.camera_frame, 
+                rclpy.time.Time(), 
                 timeout=Duration(seconds=0.05)
             )
         except TransformException:
