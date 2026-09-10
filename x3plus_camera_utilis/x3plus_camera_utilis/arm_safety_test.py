@@ -132,15 +132,18 @@ class ArmSafetyTest(Node):
             return
 
         data = np.load(self.traj_file)
-        self.times = data["times"]
-        self.q = data["q"]
+        STRIDE = 6  # keep every 6th waypoint - tune this
+        self.times = data["times"][::STRIDE]
+        self.q = data["q"][::STRIDE]
+        self.dt = max(self.times[1] - self.times[0], 0.05)
+        self.run_time_ms = int(self.dt * 1000) + 10
         self.index = 0
 
         # SAFE timing
         #self.dt = max(self.times[1] - self.times[0], 0.05)  # at least 50 ms
         #self.run_time_ms = int(self.dt * 1000) - 10         # finish before next command
-        self.dt = max(self.times[1] - self.times[0], 0.05)  # at least 50 ms
-        self.run_time_ms = int(self.dt * 1000) + 20
+        #self.dt = max(self.times[1] - self.times[0], 0.05)  # at least 50 ms
+        #self.run_time_ms = int(self.dt * 1000) + 20
 
         self.get_logger().info(f"SHORT TRAJECTORY TEST — {len(self.times)} waypoints")
         self.get_logger().info(f"dt={self.dt:.3f}s, run_time={self.run_time_ms}ms")
