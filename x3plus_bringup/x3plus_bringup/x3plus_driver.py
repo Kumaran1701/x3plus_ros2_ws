@@ -30,6 +30,12 @@ class x3plusDriver(Node):
 
         self.cmd_vel_sub_ = self.create_subscription(TwistStamped, 'cmd_vel', self.cmd_vel_callback, 10)
         self.arm_sub_ = self.create_subscription(ArmJoint, 'TargetAngle', self.arm_callback, 10)
+        self.arm_trajectory_sub_ = self.create_subscription(
+            ArmJoint,
+            'TrajectoryAngle',
+            self.trajectory_callback,
+            10
+        )
         
         self.voltage_pub_ = self.create_publisher(Float32, 'voltage', 10)
         self.imu_pub_ = self.create_publisher(Imu, '/imu/raw', 10)
@@ -66,19 +72,31 @@ class x3plusDriver(Node):
     def arm_callback(self, msg):
         if len(msg.joints) != 0:
             target_angles = list(msg.joints)
-            for i in range(2):
-                self.car.set_uart_servo_angle_array(target_angles, msg.run_time)
-                self.joints = target_angles
+            self.car.set_uart_servo_angle_array(target_angles, msg.run_time)
+            self.joints = target_angles
 
         else:
-            for i in range(2):
-                self.car.set_uart_servo_angle(msg.id, msg.angle, msg.run_time)
-                self.joints[msg.id - 1] = msg.angle
+            self.car.set_uart_servo_angle(msg.id, msg.angle, msg.run_time)
+            self.joints[msg.id - 1] = msg.angle
 
     def srv_arm_callback(self, request, response):
         joints = self.car.get_uart_servo_angle_array()
         response.angles = [float(val) for val in joints]
         return response
+
+    def trajectory_callback(self, msg):
+        if len(msg.joints) != 0:
+            target_angles = list(msg.joints)
+
+            # Direct position update.
+            # run_time=0 means do not ask the MCU to execute
+            # a separate timed interpolation between waypoints.
+            self.car.set_uart_servo_angle_array(
+                target_angles,
+                0
+            )
+
+            self.joints = target_angles
 
     def timer_callback(self):
 
