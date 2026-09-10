@@ -13,6 +13,7 @@ class ArmSafetyTest(Node):
     def __init__(self):
         super().__init__('arm_safety_test')
 
+        # Parameters
         self.declare_parameter("mode", "static")
         self.declare_parameter("test_joint", 1)
         self.declare_parameter("traj_file", "")
@@ -33,11 +34,15 @@ class ArmSafetyTest(Node):
 
         self.get_logger().info(f"Current angles: {self.current_angles}")
 
-        # Defer test execution until executor is running
-        self.create_timer(0.1, self.start_test)
+        # Run test ONCE
+        self.create_timer(0.01, self.run_once)
+        self.test_started = False
 
-    def start_test(self):
-        # Run selected test
+    def run_once(self):
+        if self.test_started:
+            return
+        self.test_started = True
+
         if self.mode == "static":
             self.static_test()
 
@@ -55,15 +60,15 @@ class ArmSafetyTest(Node):
             self.shutdown_safe()
 
     # ============================================================
-    # Test 1: Static sanity check (no motion)
+    # Test 1: Static sanity check
     # ============================================================
     def static_test(self):
         self.get_logger().info("STATIC TEST — no motion")
-        self.get_logger().info("Verify angles manually. Node will exit.")
+        self.get_logger().info("Verify angles manually.")
         self.shutdown_safe()
 
     # ============================================================
-    # Test 2: Micro‑motion test (+2° and back)
+    # Test 2: Micro‑motion (+2° and back)
     # ============================================================
     def micro_motion_test(self):
         j = self.test_joint - 1
@@ -77,27 +82,27 @@ class ArmSafetyTest(Node):
         msg = ArmJoint()
         msg.joints = self.current_angles.copy()
         msg.joints[j] += 2.0
-        msg.run_time = 200
+        msg.run_time = 300
 
-        self.get_logger().info(f"Moving joint {self.test_joint} +2°")
         self.pub.publish(msg)
+        self.get_logger().info(f"Moving joint {self.test_joint} +2°")
 
         def move_back():
             msg2 = ArmJoint()
             msg2.joints = self.current_angles.copy()
-            msg2.run_time = 200
+            msg2.run_time = 300
             self.get_logger().info(f"Moving joint {self.test_joint} back")
             self.pub.publish(msg2)
             self.shutdown_safe()
 
-        self.create_timer(1.0, move_back)
+        self.create_timer(0.5, move_back)
 
     # ============================================================
     # Test 3: Single waypoint test
     # ============================================================
     def single_waypoint_test(self):
         if self.traj_file == "":
-            self.get_logger().error("traj_file parameter required for single waypoint test")
+            self.get_logger().error("traj_file required")
             self.shutdown_safe()
             return
 
@@ -110,19 +115,19 @@ class ArmSafetyTest(Node):
 
         msg = ArmJoint()
         msg.joints = list(servo_deg) + [self.current_angles[5]]
-        msg.run_time = 300
+        msg.run_time = 400
 
         self.pub.publish(msg)
-        self.get_logger().info("Sent first waypoint. Node will exit in 2s.")
+        self.get_logger().info("Sent first waypoint.")
 
-        self.create_timer(2.0, self.shutdown_safe)
+        self.create_timer(1.0, self.shutdown_safe)
 
     # ============================================================
-    # Test 4: Short trajectory test
+    # Test 4: Short trajectory test (SAFE VERSION)
     # ============================================================
     def short_trajectory_test(self):
         if self.traj_file == "":
-            self.get_logger().error("traj_file parameter required for short trajectory test")
+            self.get_logger().error("traj_file required")
             self.shutdown_safe()
             return
 
@@ -130,9 +135,13 @@ class ArmSafetyTest(Node):
         self.times = data["times"]
         self.q = data["q"]
         self.index = 0
-        self.dt = self.times[1] - self.times[0]
+
+        # SAFE timing
+        self.dt = max(self.times[1] - self.times[0], 0.05)  # at least 50 ms
+        self.run_time_ms = int(self.dt * 1000) - 10         # finish before next command
 
         self.get_logger().info(f"SHORT TRAJECTORY TEST — {len(self.times)} waypoints")
+        self.get_logger().info(f"dt={self.dt:.3f}s, run_time={self.run_time_ms}ms")
 
         self.timer = self.create_timer(self.dt, self.publish_next)
 
@@ -148,7 +157,7 @@ class ArmSafetyTest(Node):
 
         msg = ArmJoint()
         msg.joints = list(servo_deg) + [self.current_angles[5]]
-        msg.run_time = int(self.dt * 1000) + 20
+        msg.run_time = self.run_time_ms
 
         self.pub.publish(msg)
         self.get_logger().info(
@@ -160,7 +169,7 @@ class ArmSafetyTest(Node):
         self.index += 1
 
     # ============================================================
-    # Safe shutdown helper
+    # Safe shutdown
     # ============================================================
     def shutdown_safe(self):
         self.get_logger().info("Shutting down safely...")
