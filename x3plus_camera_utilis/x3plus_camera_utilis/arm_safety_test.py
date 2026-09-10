@@ -140,7 +140,7 @@ class ArmSafetyTest(Node):
         #self.dt = max(self.times[1] - self.times[0], 0.05)  # at least 50 ms
         #self.run_time_ms = int(self.dt * 1000) - 10         # finish before next command
         self.dt = max(self.times[1] - self.times[0], 0.05)  # at least 50 ms
-        self.run_time_ms = int(self.dt * 1000) + 10
+        self.run_time_ms = int(self.dt * 1000) + 20
 
         self.get_logger().info(f"SHORT TRAJECTORY TEST — {len(self.times)} waypoints")
         self.get_logger().info(f"dt={self.dt:.3f}s, run_time={self.run_time_ms}ms")
