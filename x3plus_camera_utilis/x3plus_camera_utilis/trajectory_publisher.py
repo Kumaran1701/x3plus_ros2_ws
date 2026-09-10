@@ -11,11 +11,6 @@ from x3plus_msgs.srv import RobotArmArray
 
 
 def drake_rad_to_servo_deg(q_rad):
-    """
-    Drake joint coordinates -> X3Plus servo angles.
-
-    q_rad: 5 arm joints in radians
-    """
     return np.degrees(q_rad) + 90.0
 
 
@@ -61,7 +56,7 @@ class ArmTrajectoryController(Node):
         )
 
         # ========================================================
-        # Current arm angle
+        # Get current arm position
         # ========================================================
 
         self.current_client = self.create_client(
@@ -73,15 +68,7 @@ class ArmTrajectoryController(Node):
             'Waiting for CurrentAngle service...'
         )
 
-        if not self.current_client.wait_for_service(
-            timeout_sec=5.0
-        ):
-            self.get_logger().error(
-                'CurrentAngle service not available.'
-            )
-            raise RuntimeError(
-                'CurrentAngle service unavailable'
-            )
+        self.current_client.wait_for_service()
 
         future = self.current_client.call_async(
             RobotArmArray.Request()
@@ -92,22 +79,16 @@ class ArmTrajectoryController(Node):
             future
         )
 
-        if future.result() is None:
-            raise RuntimeError(
-                'Failed to read CurrentAngle'
-            )
-
         self.current_angles = list(
             future.result().angles
         )
 
         self.get_logger().info(
-            f'Current servo angles: '
-            f'{self.current_angles}'
+            f'Current angles: {self.current_angles}'
         )
 
         # ========================================================
-        # Load trajectory
+        # Load minimum-jerk trajectory
         # ========================================================
 
         data = np.load(self.traj_file)
@@ -122,40 +103,24 @@ class ArmTrajectoryController(Node):
             dtype=float
         )
 
-        if self.q.ndim != 2:
-            raise ValueError(
-                f'q must be 2D, got {self.q.shape}'
-            )
-
         if self.q.shape[1] != 5:
             raise ValueError(
-                f'Expected 5 arm joints, '
-                f'got {self.q.shape[1]}'
+                f'Expected 5 joints, got {self.q.shape[1]}'
             )
 
         if len(self.times) != len(self.q):
             raise ValueError(
-                'times and q must have same length'
-            )
-
-        if len(self.times) < 2:
-            raise ValueError(
-                'Trajectory must contain at least 2 points'
+                'times and q have different lengths'
             )
 
         self.duration = self.times[-1]
 
         self.get_logger().info(
-            f'Loaded trajectory: '
-            f'{len(self.times)} points'
+            f'Trajectory points: {len(self.times)}'
         )
 
         self.get_logger().info(
-            f'Duration: {self.duration:.3f} s'
-        )
-
-        self.get_logger().info(
-            f'Controller: {self.control_hz:.1f} Hz'
+            f'Trajectory duration: {self.duration:.3f} s'
         )
 
         # ========================================================
@@ -165,22 +130,26 @@ class ArmTrajectoryController(Node):
         self.start_time = None
         self.finished = False
 
+        # ========================================================
+        # Fixed-rate controller
+        # ========================================================
+
         self.timer = self.create_timer(
             1.0 / self.control_hz,
             self.control_loop
         )
 
         self.get_logger().info(
-            'Trajectory controller ready.'
+            f'Trajectory controller running at '
+            f'{self.control_hz:.1f} Hz'
         )
 
     # ============================================================
-    # Continuous trajectory evaluation
+    # Evaluate q(t)
     # ============================================================
 
     def evaluate_trajectory(self, t):
 
-        # Clamp to trajectory limits
         t = np.clip(
             t,
             self.times[0],
@@ -190,7 +159,6 @@ class ArmTrajectoryController(Node):
         q_des = np.empty(5)
 
         for j in range(5):
-
             q_des[j] = np.interp(
                 t,
                 self.times,
@@ -200,7 +168,7 @@ class ArmTrajectoryController(Node):
         return q_des
 
     # ============================================================
-    # Fixed-rate controller
+    # Fixed-rate control loop
     # ============================================================
 
     def control_loop(self):
@@ -209,92 +177,82 @@ class ArmTrajectoryController(Node):
             return
 
         if self.start_time is None:
-
             self.start_time = time.monotonic()
 
             self.get_logger().info(
-                'Starting trajectory.'
+                'Starting trajectory...'
             )
 
-        # Absolute elapsed time.
-        #
-        # IMPORTANT:
-        # We do not increment t by 1/control_hz.
-        # We measure real elapsed time so that small ROS timer
-        # delays do not accumulate.
+        # Real elapsed trajectory time
         t = time.monotonic() - self.start_time
 
         # ========================================================
-        # End of trajectory
+        # End
         # ========================================================
 
         if t >= self.duration:
 
-            q_des = self.q[-1]
+            self.send_position(self.q[-1])
 
-            self.send_position(q_des)
+            self.finished = True
+            self.timer.cancel()
 
             self.get_logger().info(
                 'Trajectory complete.'
             )
 
-            self.finished = True
-            self.timer.cancel()
-
-            # Give the final command a little time to transmit.
-            time.sleep(0.1)
-
-            rclpy.shutdown()
+            # Allow final command to be transmitted
+            self.create_timer(
+                0.1,
+                self.finish_shutdown
+            )
 
             return
 
         # ========================================================
-        # Evaluate q(t)
+        # Continuous q(t)
         # ========================================================
 
         q_des = self.evaluate_trajectory(t)
 
         # ========================================================
-        # Send instantaneous position
+        # Send position
         # ========================================================
 
         self.send_position(q_des)
 
     # ============================================================
-    # Send arm position
+    # Send direct servo position
     # ============================================================
 
     def send_position(self, q_rad):
 
         servo_deg = drake_rad_to_servo_deg(q_rad)
 
-        # Keep gripper at its current value.
-        gripper_deg = self.current_angles[5]
-
         msg = ArmJoint()
 
+        # 5 arm joints + current gripper position
         msg.joints = (
             list(servo_deg)
-            + [gripper_deg]
+            + [self.current_angles[5]]
         )
 
-        # Not used by TrajectoryAngle callback,
-        # because the driver explicitly sends run_time=0.
+        # Driver ignores this for TrajectoryAngle
         msg.run_time = 0
 
         self.pub.publish(msg)
 
     # ============================================================
-    # Shutdown
+    # Finish
     # ============================================================
 
-    def destroy_node(self):
+    def finish_shutdown(self):
 
         self.get_logger().info(
-            'Trajectory controller stopped.'
+            'Shutting down.'
         )
 
-        super().destroy_node()
+        rclpy.shutdown()
 
 
 def main():
@@ -310,7 +268,6 @@ def main():
         pass
 
     finally:
-
         if rclpy.ok():
             rclpy.shutdown()
 
