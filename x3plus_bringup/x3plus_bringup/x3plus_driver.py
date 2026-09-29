@@ -12,55 +12,75 @@ from x3plus_msgs.msg import ArmJoint
 from x3plus_msgs.srv import RobotArmArray
 
 class x3plusDriver(Node):
+    """
+    Hardware driver for the Yahboom X3Plus robot.
+    - Interfaces with Rosmaster MCU for base motion, IMU, magnetometer, battery.
+    - Publishes raw sensor data: /imu/raw, /mag/raw, /vel_raw, /voltage.
+    - Handles arm servo commands and exposes a service for reading joint angles.
+    - Publishes wheel joint states and arm joint states for robot_state_publisher.
+    """
 
     def __init__(self):
         super().__init__('driver_node')
 
+        # Initialize Rosmaster MCU (type 2 = mecanum base)
         self.car = Rosmaster()
         self.car.set_car_type(2)
 
+        # Latest commanded velocities.
         self.vx_pub = 0.0
         self.vy_pub = 0.0
         self.angular_pub = 0.0
 
+        # Inegrated wheel positions (for joint_states)
         self.fl_pos = 0.0
         self.fr_pos = 0.0
         self.rl_pos = 0.0
         self.rr_pos = 0.0
 
+        # Subscriptions: base motion + arm control
         self.cmd_vel_sub_ = self.create_subscription(TwistStamped, 'cmd_vel', self.cmd_vel_callback, 10)
         self.arm_sub_ = self.create_subscription(ArmJoint, 'TargetAngle', self.arm_callback, 10)
-        self.arm_trajectory_sub_ = self.create_subscription(
-            ArmJoint,
-            'TrajectoryAngle',
-            self.trajectory_callback,
-            10
-        )
-        
+        self.arm_trajectory_sub_ = self.create_subscription(ArmJoint,
+                                                            'TrajectoryAngle',
+                                                            self.trajectory_callback,
+                                                            10)
+
+        # Publishers: sensors + wheel velocities + joint states
         self.voltage_pub_ = self.create_publisher(Float32, 'voltage', 10)
         self.imu_pub_ = self.create_publisher(Imu, '/imu/raw', 10)
         self.mag_pub_ = self.create_publisher(MagneticField, '/mag/raw', 10)
         self.vel_raw_pub_ = self.create_publisher(TwistStamped, '/vel_raw', 10)
         self.joint_pub_ = self.create_publisher(JointState, '/joint_states', 10)
 
+        # Service: return arm servo angles
         self.srv_arm_angle_ = self.create_service(RobotArmArray, 'CurrentAngle', self.srv_arm_callback)
 
+        # Prefix for joint names
         self.declare_parameter('prefix', '')
         self.prefix = self.get_parameter('prefix').get_parameter_value().string_value
         if self.prefix and not self.prefix.endswith('/'):
             self.prefix += '/'
 
+        # Stop robot initially and start MCU receive thread.
         self.car.set_car_motion(0, 0, 0)
         self.car.create_receive_threading()
         self.get_logger().info("Driver node started")
 
+        # Default arm joint positions (degrees)
         self.joints = [90, 180, 0, 0, 90, 30]
         self.car.set_uart_servo_angle_array(self.joints, 1000)
 
+        # Timer for periodic sensor polling and joint state publishing.
         self.last_time = self.get_clock().now()
         self.timer_ = self.create_timer(0.02 , self.timer_callback)
 
+
+    # --------------------------------------- Base Motion ---------------------------------------
+
     def cmd_vel_callback(self, msg):
+        """ Sends /cmd_vel commands to Rosmaster MCU """
+
         self.vx_pub = msg.twist.linear.x
         self.vy_pub = msg.twist.linear.y
         self.angular_pub = msg.twist.angular.z
@@ -69,7 +89,12 @@ class x3plusDriver(Node):
 
         #self.get_logger().info(f"cmd_vel: {vx}, {vy}, {angular}")
 
+
+    # --------------------------------------- Arm Control ----------------------------------------
+
     def arm_callback(self, msg):
+        """ Set arm servo angles (full array or single joint). """
+
         if len(msg.joints) != 0:
             target_angles = list(msg.joints)
             self.car.set_uart_servo_angle_array(target_angles, msg.run_time)
@@ -80,11 +105,18 @@ class x3plusDriver(Node):
             self.joints[msg.id - 1] = msg.angle
 
     def srv_arm_callback(self, request, response):
+        """ Returns current arm servo angles via service. """
+
         joints = self.car.get_uart_servo_angle_array()
         response.angles = [float(val) for val in joints]
         return response
 
     def trajectory_callback(self, msg):
+        """
+        Direct servo position update  for trajectory execution.
+        run_time=0 => MCU does not interpolate between waypoints
+        """
+
         if len(msg.joints) != 0:
             target_angles = list(msg.joints)
 
@@ -98,25 +130,34 @@ class x3plusDriver(Node):
 
             self.joints = target_angles
 
+
+    # ------------------------------- Sensor Polling and Joint States ------------------------------
+
     def timer_callback(self):
+        """
+        Poll sensors, compute wheel joint positions and publish joint states.
+        """
 
         twist = TwistStamped()
         imu = Imu()
         battery = Float32()
         mag = MagneticField()
-        
+
+        # Compute dt.
         current_time = self.get_clock().now()
         dt = (current_time - self.last_time).nanoseconds / 1e9
         if dt <= 0:
             return
         self.last_time = current_time
 
+        # Read sensors from MCU.
         battery.data = self.car.get_battery_voltage()
         acc_x, acc_y, acc_z = self.car.get_accelerometer_data()
         gyro_x, gyro_y, gyro_z = self.car.get_gyroscope_data()
         mag_x, mag_y, mag_z = self.car.get_magnetometer_data()
         vel_x, vel_y, vel_angular = self.car.get_motion_data()
 
+        # IMU message.
         imu.header.stamp = current_time.to_msg()
         imu.header.frame_id = 'imu_link'
         imu.linear_acceleration.x = acc_x
@@ -126,23 +167,27 @@ class x3plusDriver(Node):
         imu.angular_velocity.y = gyro_y
         imu.angular_velocity.z = gyro_z
 
+        # Magnetometer message.
         mag.header.stamp = current_time.to_msg()
         mag.header.frame_id = 'imu_link'
         mag.magnetic_field.x = mag_x
         mag.magnetic_field.y = mag_y
         mag.magnetic_field.z = mag_z
 
+        # Raw velocity message.
         twist.header.stamp = current_time.to_msg()
         twist.header.frame_id = 'base_footprint'
         twist.twist.linear.x = vel_x
         twist.twist.linear.y = vel_y
         twist.twist.angular.z = vel_angular
 
+        # Publish raw sensor data.
         self.imu_pub_.publish(imu)
         self.mag_pub_.publish(mag)
         self.vel_raw_pub_.publish(twist)
         self.voltage_pub_.publish(battery)
 
+        # Wheel joint integration (mecanum kinematics)
         r = 0.04
         lx = 0.12
         ly = 0.10
@@ -157,6 +202,7 @@ class x3plusDriver(Node):
         self.rl_pos += rl_vel * dt
         self.rr_pos += rr_vel * dt
 
+        # JointState message (wheels + arm)
         joint_state = JointState()
         joint_state.header.stamp = current_time.to_msg()
 
@@ -167,15 +213,18 @@ class x3plusDriver(Node):
 
         joint_state.position = [self.fr_pos, self.fl_pos, self.rr_pos, self.rl_pos]
 
+        # Arm joints
         arm_names = ["arm_joint1", "arm_joint2", "arm_joint3", "arm_joint4", "arm_joint5", "grip_joint",]
         joint_state.name.extend([self.prefix + name for name in arm_names])
 
         arm_joints_deg = list(self.joints)
 
+        # Grip joint: mapt servo range -> URDF range
         arm_joints_deg[5] = float(np.interp(arm_joints_deg[5], [30.0, 180.0], [0.0, 90.0]))
         mid_offset = np.array([90.0] * 6)
         normalized_deg = np.array(arm_joints_deg) - mid_offset
 
+        # Convert degrees -> radians (centred around 90°)
         rad_positions = list(normalized_deg * (math.pi / 180.0))
         joint_state.position.extend(rad_positions)
 
