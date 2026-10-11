@@ -105,6 +105,10 @@ class KinectExtrinsicCalibrator(Node):
     # ------------------------------------ ChArUco detection --------------------------------------
    
     def detect_board(self, image, camera_matrix, dist_coeffs, camera_name):
+        """
+        Detect a ChArUco board and estimate the
+        camera <- board transform.
+        """
 
         # Astra publishes RGB8, Kinect is converted to BGR8.
         if camera_name == "Astra":
@@ -169,14 +173,11 @@ class KinectExtrinsicCalibrator(Node):
 
     # ------------------------------------ Image callback --------------------------------------
 
-    def image_callback(
-        self,
-        astra_msg,
-        astra_info,
-        kinect_msg,
-        kinect_info
-    ):
-
+    def image_callback(self, astra_msg, astra_info, kinect_msg, kinect_info):
+        """
+        Process synchronized Astra and Kinect frames and
+        estimate Astra <- Kinect extrinsics.
+        """
         try:
             astra_image = self.bridge.imgmsg_to_cv2(astra_msg, desired_encoding='bgr8')
             kinect_image = self.bridge.imgmsg_to_cv2(kinect_msg, desired_encoding='bgr8')
@@ -285,9 +286,12 @@ class KinectExtrinsicCalibrator(Node):
     # ------------------------------------ Final calibration -------------------------------------
     
     def calculate_final_transform(self):
+        """
+        Average all collected samples and compute
+        base_link <- camera_base.
+        """
 
         self.get_logger().info(f'Calculating transform from {len(self.samples)} samples...')
-
    
         # Average translation
         translations = np.array([T[:3, 3] for T in self.samples])
@@ -346,8 +350,6 @@ class KinectExtrinsicCalibrator(Node):
 
         t = tf_msg.transform.translation
         q = tf_msg.transform.rotation
-
-        T = cv2.Rodrigues(np.zeros(3))[0]
 
         T = quaternion_matrix([q.x, q.y, q.z, q.w])
 

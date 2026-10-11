@@ -15,6 +15,7 @@ from tf2_ros.transform_listener import TransformListener
 import tf2_geometry_msgs
 from tf2_sensor_msgs.tf2_sensor_msgs import do_transform_cloud
 
+
 class PlaneSegmentationNode(Node):
     def __init__(self):
         super().__init__('plane_segmentation_node')
@@ -124,21 +125,6 @@ class PlaneSegmentationNode(Node):
         self.plane_vis_pub_.publish(vis_cloud_msg)
 
     def pointcloud_callback(self, msg: PointCloud2):
-            '''
-            target_frame = 'base_link'
-    
-            try: 
-                transform = self.tf_buffer.lookup_transform(
-                    target_frame,
-                    msg.header.frame_id,
-                    rclpy.time.Time()
-                )
-                msg = do_transform_cloud(msg, transform)
-                frame_id = target_frame
-            except TransformException as ex:
-                self.get_logger().info(f"Waiting for TF frame transform: {ex}")
-                return
-            '''
             
             gen = pc2.read_points(msg, field_names=("x", "y", "z"), skip_nans=True)
             structured_points = np.array(list(gen))
@@ -202,6 +188,7 @@ class PlaneSegmentationNode(Node):
                         msg.header
                     )
             self.get_logger().info("Visualizing Planes")
+
 
 def main():
     rclpy.init()

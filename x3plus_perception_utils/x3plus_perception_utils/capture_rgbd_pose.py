@@ -34,6 +34,14 @@ def disk_writer_worker(queue):
 
 
 class RGBDPoseRecorder(Node):
+    """
+    Record time syncronized RGB-D, camera intrinsics, pose 
+    for TSDF-based reconstruction or pointcloud fusion.
+
+    Starts recording only when the node EkfMecanumStrafeNode starts motion (when returns True).
+    Frames are saved only when a minimum distance is driven.
+    """
+
     def __init__(self):
         super().__init__('rgbd_pose_recorder')
 
@@ -64,7 +72,7 @@ class RGBDPoseRecorder(Node):
 
         self.last_saved_position = None  
 
-        # Unique Subscription Names to prevent Python overwriting handles
+        # Stop recording once the motion controller publishes False.
         self.recording_status_sub = self.create_subscription(
             Bool, '/recording_enabled', self.recording_enabled_callback, 10)
 
@@ -85,7 +93,15 @@ class RGBDPoseRecorder(Node):
 
         self.get_logger().info("Recorder initialized. Waiting for /depth/camera_info topic...")
 
+
     def recording_enabled_callback(self, msg):
+        """
+        Holds depth_callback from processing depth data until EkfMecanumStrafeNode returns True.
+
+        Stops depth_callback from processing anymore when more than zero frames are saved after 
+        EkfMecanumStrafeNode returned True. (To avoid storing redundant frames).
+        """
+
         new_state = msg.data
         if not new_state and self.frame_count > 0 and self.recording_enabled:
             self.get_logger().info("Recording finished by motion node request. Shutting down worker process...")
@@ -94,8 +110,12 @@ class RGBDPoseRecorder(Node):
         elif new_state:
             self.recording_enabled = True
 
+
     def depth_info_callback(self, msg):
-        """Caches camera parameters once and stops logging."""
+        """
+        Stores camera parameters once and stops logging.
+        """
+
         if not self.depth_info_received:
             self.depth_intrinsics = np.array([
                 msg.k[0], msg.k[4], msg.k[2], msg.k[5],
@@ -106,7 +126,10 @@ class RGBDPoseRecorder(Node):
             self.get_logger().info(f"Successfully connected to camera info! Dimensions: {msg.width}x{msg.height}")
 
     def depth_callback(self, depth_msg):
-        """Processes depth images based on translation metrics."""
+        """
+        Processes depth images based on translation metrics.
+        """
+
         if not self.recording_enabled:
             return
             
@@ -168,7 +191,12 @@ class RGBDPoseRecorder(Node):
         self.frame_count += 1
         self.get_logger().info(f"Saved capture {frame_idx} at translation offset Y={t.y:.3f}m")
 
+
     def quaternion_to_matrix(self, x, y, z, w):
+        """
+        Convert a quaternion to a 3×3 rotation matrix.
+        """
+
         sqw = w*w; sqx = x*x; sqy = y*y; sqz = z*z
         invs = 1.0 / (sqx + sqy + sqz + sqw)
         m00 = (sqx - sqy - sqz + sqw) * invs
