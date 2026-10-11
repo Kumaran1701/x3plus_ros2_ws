@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>x3plus_camera_utilis</name>
+  <name>x3plus_perception_utils</name>
   <version>0.0.0</version>
   <description>TODO: Package description</description>
   <maintainer email="kumarang1701@gmail.com">jetson</maintainer>

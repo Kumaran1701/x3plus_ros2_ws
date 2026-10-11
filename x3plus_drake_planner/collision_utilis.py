@@ -3,11 +3,17 @@ import numpy as np
 import matplotlib.pyplot as plt
 import open3d as o3d
 
-# --------------------------------------------- PART 1 ------------------------------------------------
+
 # ----------------------------------- RANSAC PLANE SEGMENTATION ---------------------------------------
 
 def segment_planes(point_cloud, distance_threshold=0.005, ransac_n=3, num_iterations=1000, min_points=1000):
+    """
+    Iteratively segment dominantplanes from the point cloud using RANSAC. 
 
+    Returns: 
+        significant_planes: a list of plane equation and its corresponding points
+        remaining_cloud: the outliers after removing all significant planes.
+    """
     significant_planes = []
     remaining_cloud = point_cloud
     plane_index = 1
@@ -32,13 +38,20 @@ def segment_planes(point_cloud, distance_threshold=0.005, ransac_n=3, num_iterat
     return significant_planes, remaining_cloud
 
 
-# --------------------------------------------- PART 2 ------------------------------------------------
 # -------------------------------- DBSCAN ON SEGMENTED PLANES (RED) -----------------------------------
 
-def cluster_plane_patches(significant_planes, camera_normal=np.array([1.0, 0.0, 0.0])):
-
+def cluster_planar_patches(significant_planes, camera_normal=np.array([1.0, 0.0, 0.0])):
+    """
+    Stage 1: Split segmented planes into spatially distinct clusters using DBSCAN.
+    
+    Different clustering parameters for horizontal planes vs other orientations.
+    Horizontal surface have dense capture and require strict parameters compared to vertical surfaces.
+    
+    Returns:
+        all_plane_sub_hulls: list of convex hulls for each plane sub-cluster
+        plane_dbscan_noise_pcds: list of noise point clouds for further clustering of all
+    """
     all_plane_sub_hulls = []
-    all_noise_pcds = []
     plane_dbscan_noise_pcds = []
 
     print(
@@ -87,9 +100,6 @@ def cluster_plane_patches(significant_planes, camera_normal=np.array([1.0, 0.0, 
         noise_indices = np.where(plane_labels == -1)[0]
 
         noise_pcd = plane_pcd.select_by_index(noise_indices)
-
-        # For visualization of noise from plane clusters
-        all_noise_pcds.append(noise_pcd)
 
         # For further clustering of all outliers
         plane_dbscan_noise_pcds.append(noise_pcd)
@@ -149,17 +159,22 @@ def cluster_plane_patches(significant_planes, camera_normal=np.array([1.0, 0.0, 
         f"Extracted {len(all_plane_sub_hulls)} plane patches."
     )
 
-    return (
-        all_plane_sub_hulls,
-        all_noise_pcds,
-        plane_dbscan_noise_pcds,
-    )
+    return all_plane_sub_hulls, plane_dbscan_noise_pcds
 
 
-# --------------------------------------------- PART 3 ------------------------------------------------
 # ----------------------------- DBSCAN ON OUTLIERS POINTS (GREEN & BLUE) ------------------------------
 
-def cluster_outlier_patches(outliers, plane_dbscan_noise_pcds=None):
+def cluster_non_planar_patches(outliers, plane_dbscan_noise_pcds=None):
+    """
+    Two-stage clustering of non-planar patches from outlier points of RANSAC and planar DBSCAN.
+    Stage 2. Dense clustering (Green) of all outliers from Stage 1.
+    Stage 3. Sparse clustering (Blue) of remaining noise from Stage 2.
+
+    Returns:
+        convex_hulls_list: list of convex hulls for each outlier sub-cluster
+        final_noise_pcd: point cloud of remaining noise after secondary DBSCAN
+    """
+
     convex_hulls_list = []
 
     print(f"\nCombining original RANSAC outliers with plane DBSCAN noise")
@@ -276,11 +291,13 @@ def cluster_outlier_patches(outliers, plane_dbscan_noise_pcds=None):
     return convex_hulls_list, final_noise_pcd
     
 
-# --------------------------------------------- PART 4 ------------------------------------------------
 # ------------------------------ CONVERT CONVEX HULL TO DRAKE VERTICES --------------------------------
 
 def complete_hulls_to_obstacle_vertices(all_plane_sub_hulls, convex_hulls_list):
-
+    """
+    Convert all convex hulls (from planar and non-planar patches) into vertex sets
+    and return it as a list of Nx3 arrays for Drake collision geometry representation.
+    """
     all_hull_meshes = all_plane_sub_hulls + convex_hulls_list
 
     obstacle_verts_list = []
@@ -297,35 +314,37 @@ def complete_hulls_to_obstacle_vertices(all_plane_sub_hulls, convex_hulls_list):
     return obstacle_verts_list
 
 
-# --------------------------------------------- PART 5 ------------------------------------------------
 # -------------------------------------- CONVENIENCE WRAPPER ------------------------------------------
 
 def prepare_complete_collision_geometry(point_cloud, camera_normal=np.array([1.0, 0.0, 0.0])):
     """
-    Run the complete point-cloud to Drake-obstacle preparation pipeline.
+    Wrapper to convert perception data to collision geometry pipeline.
+
+    Performs:
+    1. RANSAC plane segmentation
+    2. Multi-stage DBSCAN clustering on planar and non-planar patches.
+    3. Convex hull generation for all clusters.
+    4. Convex hulls to Drake vertices conversion.
 
     Returns:
-        obstacle_verts_list
+        obstacle_verts_list: list of Nx3 vertex arrays representing convex obstacle parts.
+        significant_planes: list of significant planes extracted from RANSAC.
     """
     
     # --- RANSAC plane segmentation ------------------
 
     significant_planes, outliers = segment_planes(point_cloud)
 
-    # --- Multi-Stage DBSCAN -------------------------
-    # --- Stage 1: DBSCAN on segmented planes --------
+    # --- Multi-stage DBSCAN -------------------------
 
-    all_plane_sub_hulls, plane_noise_pcds, plane_dbscan_noise_pcds = cluster_plane_patches(
-                                                                        significant_planes,
-                                                                        camera_normal=camera_normal)
-    # --- Stage 2 & Stage 3 DBSCAN --------------------
-    # --- Stage 2: DBSCAN on Outliers  ----------------
-    # --- Stage 3: DCSCAN on Stage 2's Noise ----------
+    # Stage 1
+    all_plane_sub_hulls, plane_dbscan_noise_pcds = cluster_planar_patches(significant_planes,
+                                                                         camera_normal=camera_normal)
+    # Stage 2 & Stage 3 
+    convex_hulls_list, final_noise_pcd = cluster_non_planar_patches(outliers,
+                                                                    plane_dbscan_noise_pcds)
 
-    convex_hulls_list, final_noise_pcd = cluster_outlier_patches(outliers,
-                                                                 plane_dbscan_noise_pcds)
-
-    # --- Convex Hull to DRAKE Vertices ---------------
+    # --- Convex hull to Drake vertices ---------------
 
     obstacle_verts_list = complete_hulls_to_obstacle_vertices(all_plane_sub_hulls, convex_hulls_list)
 
@@ -333,9 +352,10 @@ def prepare_complete_collision_geometry(point_cloud, camera_normal=np.array([1.0
 
 
 # ------------------------------------------ OLD DEVELOPMENT ------------------------------------------
-# ----------------------- OBSTACLES REPRESENTATION WITH ONLY PLANAR SURFACES ONLY ---------------------
+# ----------------------- OBSTACLES REPRESENTATION WITH PLANAR SURFACES ONLY ---------------------
 
 def plane_hulls_to_obstacle_vertices(plane_hulls):
+
     obstacle_verts_list = []
 
     for hull in plane_hulls:
@@ -346,9 +366,11 @@ def plane_hulls_to_obstacle_vertices(plane_hulls):
 
 
 def prepare_plane_only_geometry(point_cloud, camera_normal=np.array([1.0, 0.0, 0.0])):
-
+    """
+        Similar to complete_hulls_to_obstacle_vertices, but only for planes.
+    """
     significant_planes, _ = segment_planes(point_cloud)
-    all_plane_sub_hulls, _, _ = cluster_plane_patches(significant_planes, camera_normal=camera_normal)
+    all_plane_sub_hulls, _, _ = cluster_planar_patches(significant_planes, camera_normal=camera_normal)
 
     obstacle_verts_list = plane_hulls_to_obstacle_vertices(all_plane_sub_hulls)
 

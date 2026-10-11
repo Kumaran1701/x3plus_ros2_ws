@@ -8,9 +8,14 @@ endif()
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclpy REQUIRED)
-# uncomment the following section in order to fill in
-# further dependencies manually.
-# find_package(<dependency> REQUIRED)
+
+
+install(PROGRAMS
+  ${PROJECT_NAME}/arm_safety_test.py
+  ${PROJECT_NAME}/strafe_motion.py
+  ${PROJECT_NAME}/trajectory_publisher.py
+  DESTINATION lib/${PROJECT_NAME}
+)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -24,9 +29,5 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 endif()
 
-install(PROGRAMS
-  ${PROJECT_NAME}/octomap.py
-  DESTINATION lib/${PROJECT_NAME}
-)
 
 ament_package()

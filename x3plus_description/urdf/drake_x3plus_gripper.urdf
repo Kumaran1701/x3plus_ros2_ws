@@ -1,0 +1,199 @@
+<?xml version="1.0" encoding="utf-8"?>
+   <robot name="x3plus_gripper">
+    <link name="gripper_base"/>
+    <link name="rlink1">
+        <inertial>
+            <origin xyz="0.00653227489887718 0.000416767821288678 0.000980984132845697" rpy="0 0 0"/>
+            <mass value="0.00117883201961805"/>
+            <inertia
+                    ixx="3.30415008842026E-08"
+                    ixy="8.05114594599862E-09"
+                    ixz="-1.46441757999184E-10"
+                    iyy="1.67254031134004E-07"
+                    iyz="-9.31932225400159E-12"
+                    izz="1.99277285249309E-07"/>
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <mesh filename="package://meshes/X3plus/visual/rlink1.obj"/>
+            </geometry>
+            <material name="">
+                <color rgba="0 0.7 0 1"/>
+            </material>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <mesh filename="package://meshes/X3plus/collision/rlink1.obj"/>
+            </geometry>
+        </collision>
+    </link>
+    <joint name="grip_joint" type="fixed">
+        <origin xyz="-0.0035 -0.012625 -0.0685" rpy="0 -1.5708 0"/>
+        <parent link="gripper_base"/>
+        <child link="rlink1"/>
+        <axis xyz="0 0 1"/>
+        <limit lower="-1.54" upper="0" effort="100" velocity="1"/>
+    </joint>
+    <link name="rlink2">
+        <inertial>
+            <origin xyz="0.021158 0.0063295 -0.0030251" rpy="0 0 0"/>
+            <mass value="0.0024469"/>
+            <inertia
+                    ixx="5.188E-08"
+                    ixy="-1.2303E-07"
+                    ixz="-1.2978E-09"
+                    iyy="6.3204E-07"
+                    iyz="-3.8824E-10"
+                    izz="6.6364E-07"/>
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <mesh filename="package://meshes/X3plus/visual/rlink2.obj"/>
+            </geometry>
+            <material name="">
+                <color rgba="0 0.7 0 1"/>
+            </material>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <mesh filename="package://meshes/X3plus/collision/rlink2.obj"/>
+            </geometry>
+        </collision>
+    </link>
+    <joint name="rlink_joint2" type="fixed">
+        <origin xyz="0.03 -0.00075429 0" rpy="0 0 0"/>
+        <parent link="rlink1"/>
+        <child link="rlink2"/>
+        <axis xyz="0 0 1"/>
+    </joint>
+    <link name="rlink3">
+        <inertial>
+            <origin xyz="0.014355 1.1499E-05 -0.0033992" rpy="0 0 0"/>
+            <mass value="0.00087627"/>
+            <inertia
+                    ixx="2.0534E-08"
+                    ixy="-1.0235E-10"
+                    ixz="1.074E-09"
+                    iyy="1.4825E-07"
+                    iyz="8.7073E-13"
+                    izz="1.3089E-07"/>
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <mesh filename="package://meshes/X3plus/visual/rlink3.obj"/>
+            </geometry>
+            <material name="">
+                <color rgba="0 0.7 0 1"/>
+            </material>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <mesh filename="package://meshes/X3plus/collision/rlink3.obj"/>
+            </geometry>
+        </collision>
+    </link>
+    <joint name="rlink_joint3" type="fixed">
+        <origin xyz="-0.0035 -0.0045 -0.0505" rpy="0 -1.5708 0"/>
+        <parent link="gripper_base"/>
+        <child link="rlink3"/>
+        <axis xyz="0 0 1"/>
+    </joint>
+    <link name="llink1">
+        <inertial>
+            <origin xyz="0.00628617364795481 -0.000318530407893543 0.00100000338924466" rpy="0 0 0"/>
+            <mass value="0.00121010771282268"/>
+            <inertia
+                    ixx="3.18226609060835E-08"
+                    ixy="-8.06236004452728E-09"
+                    ixz="3.99064856025629E-14"
+                    iyy="1.69267681405915E-07"
+                    iyz="1.87039773440675E-14"
+                    izz="2.00283878176223E-07"/>
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <mesh filename="package://meshes/X3plus/visual/llink1.obj"/>
+            </geometry>
+            <material name="">
+                <color rgba="0 0.7 0 1"/>
+            </material>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <mesh filename="package://meshes/X3plus/collision/llink1.obj"/>
+            </geometry>
+        </collision>
+    </link>
+    <joint name="llink_joint1" type="fixed">
+        <origin xyz="-0.0035 0.012375 -0.0685" rpy="0 -1.5708 0"/>
+        <parent link="gripper_base"/>
+        <child link="llink1"/>
+        <axis xyz="0 0 1"/>
+    </joint>
+    <link name="llink2">
+        <inertial>
+            <origin xyz="0.021159 -0.0063248 -0.0030251" rpy="0 0 0"/>
+            <mass value="0.0024469"/>
+            <inertia ixx="5.1826E-08" ixy="1.229E-07" ixz="-1.2979E-09" iyy="6.321E-07" iyz="3.8796E-10"
+                     izz="6.6364E-07"/>
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <mesh filename="package://meshes/X3plus/visual/llink2.obj"/>
+            </geometry>
+            <material name="">
+                <color rgba="0 0.7 0 1"/>
+            </material>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <mesh filename="package://meshes/X3plus/collision/llink2.obj"/>
+            </geometry>
+        </collision>
+    </link>
+    <joint name="llink_joint2" type="fixed">
+        <origin xyz="0.03 0.00065104 0" rpy="0 0 0"/>
+        <parent link="llink1"/>
+        <child link="llink2"/>
+        <axis xyz="0 0 1"/>
+    </joint>
+    <link name="llink3">
+        <inertial>
+            <origin xyz="0.014354 -7.4795E-05 -0.0033992" rpy="0 0 0"/>
+            <mass value="0.00087627"/>
+            <inertia ixx="2.0537E-08" ixy="6.6549E-10" ixz="1.074E-09" iyy="1.4825E-07" iyz="-5.5867E-12"
+                     izz="1.3089E-07"/>
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <mesh filename="package://meshes/X3plus/visual/llink3.obj"/>
+            </geometry>
+            <material name="">
+                <color rgba="0 0.7 0 1"/>
+            </material>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <mesh filename="package://meshes/X3plus/collision/llink3.obj"/>
+            </geometry>
+        </collision>
+    </link>
+    <joint name="llink_joint3" type="fixed">
+        <origin xyz="-0.0035 0.0045 -0.0505" rpy="0 -1.5708 0"/>
+        <parent link="gripper_base"/>
+        <child link="llink3"/>
+        <axis xyz="0 0 1"/>
+    </joint>
+</robot>

@@ -33,9 +33,9 @@ def disk_writer_worker(queue):
         )
 
 
-class TSDFHighSpeedRecorder(Node):
+class RGBDPoseRecorder(Node):
     def __init__(self):
-        super().__init__('tsdf_high_speed_recorder')
+        super().__init__('rgbd_pose_recorder')
 
         # --- Parameters ---
         self.declare_parameter('world_frame', 'odom')
@@ -190,7 +190,7 @@ class TSDFHighSpeedRecorder(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = TSDFHighSpeedRecorder()
+    node = RGBDPoseRecorder()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

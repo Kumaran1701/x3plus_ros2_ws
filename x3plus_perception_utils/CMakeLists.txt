@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(x3plus_camera_utilis)
+project(x3plus_perception_utils)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -13,13 +13,9 @@ find_package(tf2_sensor_msgs REQUIRED)
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
 install(PROGRAMS
-  ${PROJECT_NAME}/plane_segmentation.py
-  ${PROJECT_NAME}/all_planes.py
+  ${PROJECT_NAME}/capture_rgbd_pose.py
   ${PROJECT_NAME}/kinect_astra_calibration.py
-  ${PROJECT_NAME}/save_raw_pcd.py
-  ${PROJECT_NAME}/EkfMecanumRotationNode.py
-  ${PROJECT_NAME}/trajectory_publisher.py
-  ${PROJECT_NAME}/arm_safety_test.py
+  ${PROJECT_NAME}/plane_segmentation_rviz.py
   DESTINATION lib/${PROJECT_NAME}
 )
 if(BUILD_TESTING)

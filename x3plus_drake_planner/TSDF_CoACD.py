@@ -2,6 +2,7 @@ import time
 import numpy as np
 import cv2
 import open3d as o3d
+from pathlib import Path
 
 from pydrake.all import (
     GraphOfConvexSetsOptions,
@@ -31,6 +32,12 @@ from iris_helper import grow_region_chain, animate_iris
 # ---------------------------- LOAD NPZ AND CREATE WORLD-FRAME POINTCLOUD -----------------------------
 
 def load_point_cloud(npz_path, max_depth=0.6, voxel_size=0.005):
+    """
+    Load NPZ file from rgbd_pose_dataset and generate pointcloud in world frame.
+    
+    Returns:
+        pcd: downsampled pointcloud.
+    """
 
     data = np.load(npz_path)
 
@@ -77,6 +84,13 @@ def load_point_cloud(npz_path, max_depth=0.6, voxel_size=0.005):
 #  ---------------------- COMPUTE PRE-TASK TARGET POINT FROM THE SELECTED PLANE -----------------------
 
 def compute_target_point(significant_planes, plant, plant_context, q0):
+    """
+    Compute a task-space target from the selected planar surface.
+
+    Returns:
+        centroid: plane centroid,
+        target_offset_point: Pre-task position offset from the target surface.
+    """
 
     target_cloud = np.asarray(significant_planes[2][0].points)
 
@@ -106,7 +120,12 @@ def compute_target_point(significant_planes, plant, plant_context, q0):
 # --------------------- BUILD AND SOLVE GCS TRAJECTORY FROM THE IRIS REGION CHAIN ---------------------
 
 def solve_gcs_trajectory(region_chain, q_chain, q_goal, q0, plant, robot_diagram, context):
-
+    """
+    Construct and solve a Grapth-of-Convex-Sets trajectory through the IRIS region chain.
+    
+    Returns:
+        traj: Drake piecewise-polynomial trajectory.
+    """
     # Initialize GCS with active trajectory dimensions 
     gcs = GcsTrajectoryOptimization(len(q0)) 
 
@@ -167,7 +186,10 @@ def solve_gcs_trajectory(region_chain, q_chain, q_goal, q0, plant, robot_diagram
 # -------------------------- EXPORT GCS TRAJECTORY TO A FIXED-RATE NPZ FILE ---------------------------
 
 def export_trajectory(traj, filename="trajectory_export.npz", dt=0.02):
-
+    """
+    Sample and export a fixed rate Drake trajectory to a NPZ file.
+    """
+    
     times = np.arange(0.0, traj.end_time(), dt)
     q_samples = np.array([traj.value(t).ravel() for t in times])
 
@@ -179,20 +201,27 @@ def export_trajectory(traj, filename="trajectory_export.npz", dt=0.02):
 
 def main():
 
-    # ---------- Part 1: Load perception data ---------------------------------------------------------
+    # ---------- Part 1: Load perception data -------------------------------------
 
-    #npz_path = "sep3_claude/00000.npz"
-    #pointcloud = load_point_cloud(npz_path, max_depth=0.6, voxel_size=0.005)
+    SRC_DIR = Path(__file__).resolve().parents[1]   
+    PERCEPTION_DIR = SRC_DIR / "x3plus_perception_utils"
+    
+    captures_dir = (
+        PERCEPTION_DIR
+        / "x3plus_perception_utils"
+        / "rgbd_pose_dataset"
+        / "chrissek_tsdf"
+    )
 
-    # ---------- Part 2: Generate collision geometry --------------------------------------------------
+    # ---------- Part 2: Generate collision geometry ------------------------------
 
     print("\n---------- Generating collision geometry ----------")
 
-    obstacle_verts_list = prepare_tsdf_coacd_collision_geometry(captures_dir="/home/kumaran/Mobile_Manipulator/x3plus_drake/sep3_claude")
+    obstacle_verts_list = prepare_tsdf_coacd_collision_geometry(captures_dir=captures_dir)
 
     print(f"\nGenerated {len(obstacle_verts_list)} collision obstacles")
 
-    # ---------- Part 3: Build Drake X3Plus scene -----------------------------------------------------
+    # ---------- Part 3: Build Drake X3Plus scene ---------------------------------
 
     meshcat = StartMeshcat()
 
@@ -200,7 +229,7 @@ def main():
     context = robot_diagram.CreateDefaultContext()
     plant_context = plant.GetMyMutableContextFromRoot(context)
 
-    # ---------- Part 4: Set initial arm configuration ------------------------------------------------
+    # ---------- Part 4: Set initial arm configuration ----------------------------
 
     arm_joints = [
         plant.GetJointByName("arm_joint1"),

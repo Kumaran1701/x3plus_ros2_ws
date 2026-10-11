@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
+from multiprocessing.dummy import shutdown
+
 import numpy as np
 import rclpy
 from rclpy.node import Node
 from x3plus_msgs.msg import ArmJoint
 from x3plus_msgs.srv import RobotArmArray
+
 
 def drake_rad_to_servo_deg(q_rad_5):
     return np.degrees(q_rad_5) + 90.0
@@ -11,9 +14,20 @@ def drake_rad_to_servo_deg(q_rad_5):
 
 class ArmSafetyTest(Node):
     def __init__(self):
+        """
+        To validate Drake's GCS trajectory progressively against the robot's hardware
+        before running the full trajectory.
+        
+        Modes:
+        1. static: No motion, default unless a different mode is specified.
+        2. micro: Move a single joint +2° and back to current position.
+        3. single: Move the arm to the first waypoint in the trajectory.
+        4. short: Validate the motion by evenly sampling the trajectory.
+        """
+
         super().__init__('arm_safety_test')
 
-        # Parameters
+        # Test configuration.
         self.declare_parameter("mode", "static")
         self.declare_parameter("test_joint", 1)
         self.declare_parameter("traj_file", "")
@@ -24,19 +38,23 @@ class ArmSafetyTest(Node):
 
         self.pub = self.create_publisher(ArmJoint, 'TargetAngle', 10)
 
-        # Query current angles
+        # Query current angles.
         self.grip_client = self.create_client(RobotArmArray, 'CurrentAngle')
         self.get_logger().info("Waiting for CurrentAngle service...")
         self.grip_client.wait_for_service()
+
         future = self.grip_client.call_async(RobotArmArray.Request())
         rclpy.spin_until_future_complete(self, future)
         self.current_angles = list(future.result().angles)
 
         self.get_logger().info(f"Current angles: {self.current_angles}")
 
-        # Run test ONCE
+        # Run selected test only once.
         self.create_timer(0.01, self.run_once)
         self.test_started = False
+
+
+    # ----------------- Run the selected test mode -----------------------------------------------------------------
 
     def run_once(self):
         if self.test_started:
@@ -59,21 +77,21 @@ class ArmSafetyTest(Node):
             self.get_logger().error(f"Unknown mode: {self.mode}")
             self.shutdown_safe()
 
-    # ============================================================
-    # Test 1: Static sanity check
-    # ============================================================
+
+    # ----------------- Default Mode: Static (no motion) unless a different mode is specified -----------------------
+
     def static_test(self):
         self.get_logger().info("STATIC TEST — no motion")
-        self.get_logger().info("Verify angles manually.")
+        self.get_logger().info("Available modes: 'micro', 'single' and 'short'.")
         self.shutdown_safe()
 
-    # ============================================================
-    # Test 2: Micro‑motion (+2° and back)
-    # ============================================================
+    
+    # ----------------- TEST 1: Micro‑motion test (+2° and back) on a single joint. ---------------------------------
+
     def micro_motion_test(self):
         j = self.test_joint - 1
         if j < 0 or j > 4:
-            self.get_logger().error("test_joint must be 1–5")
+            self.get_logger().error("test_joint must be 1 to 5")
             self.shutdown_safe()
             return
 
@@ -97,9 +115,9 @@ class ArmSafetyTest(Node):
 
         self.create_timer(0.5, move_back)
 
-    # ============================================================
-    # Test 3: Single waypoint test
-    # ============================================================
+    
+    # ----------------- TEST 2: Single waypoint test (arm moves only to the first waypoint of the  trajectory) ------
+      
     def single_waypoint_test(self):
         if self.traj_file == "":
             self.get_logger().error("traj_file required")
@@ -122,9 +140,9 @@ class ArmSafetyTest(Node):
 
         self.create_timer(1.0, self.shutdown_safe)
 
-    # ============================================================
-    # Test 4: Short trajectory test (SAFE VERSION)
-    # ============================================================
+
+    # ----------------- TEST 3: Short trajectory test (SAFE VERSION) ------------------------------------------------
+
     def short_trajectory_test(self):
         if self.traj_file == "":
             self.get_logger().error("traj_file required")
@@ -132,23 +150,26 @@ class ArmSafetyTest(Node):
             return
 
         data = np.load(self.traj_file)
-        STRIDE = 6  # keep every 6th waypoint - tune this
+
+        STRIDE = 6  # keep every 6th waypoint (can be adjusted).
+        
         self.times = data["times"][::STRIDE]
         self.q = data["q"][::STRIDE]
         self.dt = 0.12
         self.run_time_ms = 100
         self.index = 0
 
-        # SAFE timing
-        #self.dt = max(self.times[1] - self.times[0], 0.05)  # at least 50 ms
-        #self.run_time_ms = int(self.dt * 1000) - 10         # finish before next command
-        self.dt = max(self.times[1] - self.times[0], 0.05)  # at least 50 ms
+        # Servos should have enough time to reach the target position before the next command is sent.
+        self.dt = max(self.times[1] - self.times[0], 0.05)  # at least 50 ms.
         self.run_time_ms = int(self.dt * 1000) + 20
 
         self.get_logger().info(f"SHORT TRAJECTORY TEST — {len(self.times)} waypoints")
         self.get_logger().info(f"dt={self.dt:.3f}s, run_time={self.run_time_ms}ms")
 
         self.timer = self.create_timer(self.dt, self.publish_next)
+
+
+    # ----------------- Publish next waypoint in the test: "short" --------------------------------------------------
 
     def publish_next(self):
         if self.index >= len(self.times):
@@ -161,6 +182,7 @@ class ArmSafetyTest(Node):
         servo_deg = drake_rad_to_servo_deg(q_rad)
 
         msg = ArmJoint()
+        # Gripper is fixed. Not part of trajectory, but included to satisfy ROSMASTER message.
         msg.joints = list(servo_deg) + [self.current_angles[5]]
         msg.run_time = self.run_time_ms
 
@@ -173,13 +195,15 @@ class ArmSafetyTest(Node):
 
         self.index += 1
 
-    # ============================================================
-    # Safe shutdown
-    # ============================================================
+
+    # ----------------- shutdown -----------------------------------------------------------------------------------
+
     def shutdown_safe(self):
         self.get_logger().info("Shutting down safely...")
         rclpy.shutdown()
 
+
+# ------------------------------------------------------ MAIN ------------------------------------------------------
 
 def main():
     rclpy.init()

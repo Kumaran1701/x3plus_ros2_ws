@@ -9,6 +9,9 @@ from scipy.spatial import ConvexHull
 from sklearn.cluster import DBSCAN
 
 
+# --------------------------------------------- PART 1 ------------------------------------------------
+# ----------------------------------------- LOAD NPZ FILE ---------------------------------------------
+
 def load_capture(npz_path, 
                  depth_key="depth", 
                  depth_intrinsics_key="depth_intrinsics",
@@ -16,11 +19,16 @@ def load_capture(npz_path,
                  depth_scale=1000.0,
                  use_color=False
                  ):
-    
+    """
+    Load and return the depth image, rgb image (or None if use_color=False), 
+    camera intrinsics and pose of camera in world frame from one recorded NPZ file.
+    """
+
     data = np.load(npz_path, allow_pickle=True)
 
     depth_raw = data[depth_key].astype(np.float32)
     depth_m = depth_raw / depth_scale
+    depth_m[depth_m > 0.6] = 0.0
 
     fx, fy, cx, cy, width, height = data[depth_intrinsics_key]
 
@@ -44,7 +52,10 @@ def load_capture(npz_path,
     X_World_Cam = data[pose_key].astype(np.float64)
 
     return depth_m, rgb, intrinsic, X_World_Cam
-    
+
+
+# --------------------------------------------- PART 2 ------------------------------------------------    
+# ------------------------------------------ TSDF FUSION ----------------------------------------------
 
 def run_tsdf_fusion(captures_dir,
                     voxel_length=0.004,
@@ -52,7 +63,11 @@ def run_tsdf_fusion(captures_dir,
                     depth_trunc=2.0,
                     use_color=False,
                     ):
-     
+    """
+    Fuse captured depth frames into a TSDF volume and,
+    extract and return the triange mesh.
+    """
+
     captures_dir = Path(captures_dir)
     npz_files = sorted(captures_dir.glob("*.npz"))
     print(f"Found {len(npz_files)} captures in {captures_dir}.")
@@ -108,11 +123,18 @@ def run_tsdf_fusion(captures_dir,
     print(f"Fused mesh: {len(mesh.vertices)} vertices, {len(mesh.triangles)} triangles.")
     
     return mesh
-    
+
+
+# --------------------------------------------- PART 3 ------------------------------------------------
+# --------------------------------------- MESH SEGMENTATION -------------------------------------------
 
 def connected_component_split(mesh, 
                               min_bbox_diag=0.02
                               ):
+    """
+    Split a mesh into multiple connected components and,
+    remove those below a bounding box threshold. 
+    """
 
     trimesh_mesh = trimesh.Trimesh(vertices=np.asarray(mesh.vertices),
                                    faces=np.asarray(mesh.triangles),
@@ -140,7 +162,11 @@ def dbscan_split(mesh_vertices_list,
                  min_samples=20,
                  min_bbox_diag=0.02,
                  ):
-    
+    """
+    Cluster mesh vertices using DBSCAN
+    USed as fallback when connected_component_split does not produce enough splits.
+    """
+
     if mesh_vertices_list:
         points = np.vstack(mesh_vertices_list)
     else:
@@ -173,6 +199,9 @@ def segment_mesh(mesh,
                  dbscan_eps=0.01,
                  dbscan_min_samples=20,
                  ):
+    """
+    Segment the fused mesh into obstacle clusters and returns it.
+    """
     
     clusters = connected_component_split(mesh, min_bbox_diag=min_bbox_diag)
 
@@ -196,10 +225,16 @@ def segment_mesh(mesh,
     return clusters
 
 
+# --------------------------------------------- PART 4 ------------------------------------------------
+# -------------------------------------- ALPHA SHAPE HELPERS ------------------------------------------
+
 def estimate_alpha(point_cloud,
                    neighbor_factor=3.0,
                    ):
-    
+    """
+    Estimate and returns an alpha-sahpe parameter from local point spacing.
+    """
+
     distances = point_cloud.compute_nearest_neighbor_distance()
 
     if len(distances) == 0:
@@ -209,6 +244,9 @@ def estimate_alpha(point_cloud,
 
 
 def compute_hull_volume(points):
+    """
+    Compute and returns a convex-hull volume of a point set.
+    """
 
     try:
         return ConvexHull(points).volume
@@ -219,7 +257,10 @@ def compute_hull_volume(points):
 def compute_alpha_mesh(point_cloud,
                        alpha,
                        ):
-    
+    """
+    Generate and return a cleaned alpha-shape mesh from a point cloud.
+    """
+
     try:
         mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(point_cloud, alpha)
 
@@ -238,6 +279,9 @@ def compute_alpha_mesh(point_cloud,
 
 
 def alpha_mesh_volume(mesh):
+    """
+    Compute the volume of a watertight alpha-shape mesh
+    """
 
     if mesh is None:
         return None
@@ -251,9 +295,8 @@ def alpha_mesh_volume(mesh):
     return None
 
 
-# ============================================================
-# ------- COACD -------
-# ============================================================
+# --------------------------------------------- PART 5 ------------------------------------------------
+# --------------------------------------- CoACD PROCESSING --------------------------------------------
 
 def process_cluster(points,
                     alpha_neighbor_factor=3.0,
@@ -266,12 +309,7 @@ def process_cluster(points,
                     mcts_max_depth=3,
                     ):
     """
-    Process one segmented point cluster.
-
-    Near-convex clusters are represented directly by their convex hull. Concave clusters are decomposed using CoACD.
-
-    Returns:
-        List of Nx3 vertex arrays.
+    Convert one segmented obstacle cluster into convex collision geoemtry using convex hulls or CoACD.
     """
 
     point_cloud = o3d.geometry.PointCloud()
@@ -344,6 +382,12 @@ def process_cluster(points,
 def run_coacd_on_clusters(clusters, 
                           n_workers=None,
                           ):
+    """
+    Process all obstacle clusters in parallel and generate convex collision geometry.
+    
+    Total of (mp.cpu_count() - 1) work here and each individually runs process_cluster().
+    """
+
     if n_workers is None:
         n_workers = max(1, mp.cpu_count() - 1)
 
@@ -377,9 +421,12 @@ def run_coacd_on_clusters(clusters,
     return obstacle_verts_list
 
 
+# --------------------------------------------- PART 6 ------------------------------------------------
+# -------------------------------------- CONVENIENCE WRAPPER ------------------------------------------
+
 def prepare_tsdf_coacd_collision_geometry(captures_dir, voxel_length=0.004, depth_trunc=2.0):
     """
-    Build collision geometry directly from the captured depth data.
+    Complete TSDF-to-CoACD helper for generating convex obstacle geometry from captured NPZ files.
 
     Returns:
         obstacle_verts_list: list of Nx3 vertex arrays representing convex obstacle parts.

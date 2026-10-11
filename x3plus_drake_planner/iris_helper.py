@@ -16,7 +16,6 @@ from pydrake.planning import IrisZo
 
 
 # ------------------------------ PART 1: SEQUENTIAL IRIS REGION GENERATION ----------------------------
-
 # -------------------- 1(A) GROW A VERIFIED IRIS REGUIN AROUND A SEED CONFIGURATION -------------------
 
 def grow_iris_region(
@@ -46,22 +45,18 @@ def grow_iris_region(
 
         ellipsoid = Hyperellipsoid.MakeHypersphere(radius=this_radius, center=center_q)
 
-        region = IrisZo(
-            checker=checker,
-            starting_ellipsoid=ellipsoid,
-            domain=domain,
-            options=iris_zo_options,
-        )
+        region = IrisZo(checker=checker,
+                        starting_ellipsoid=ellipsoid,
+                        domain=domain,
+                        options=iris_zo_options)
 
         violation = np.max(region.A() @ center_q - region.b())
 
         if violation <= containment_tol:
             return region
 
-        print(
-            f"  grow_iris_region: seed not contained (violation={violation:.6f}), "
-            f"retry {attempt + 1}/{max_retries} with radius={this_radius:.4g}"
-        )
+        print(f"grow_iris_region: seed not contained (violation={violation:.6f}), "
+              f"retry {attempt + 1}/{max_retries} with radius={this_radius:.4g}")
 
     raise RuntimeError(
         f"IrisZo could not produce a region containing its own seed after {max_retries} attempts. "
@@ -134,7 +129,7 @@ def solve_ik_in_region(
     consecutive regions.
 
     Returns:
-        np.ndarray: Collision-free IK solution if successful.
+        q_sol: Collision-free IK solution if successful.
         None: If IK fails or the resulting configuration is in collision.
     """
 
@@ -142,13 +137,11 @@ def solve_ik_in_region(
 
     ik.AddMinimumDistanceLowerBoundConstraint(0.001, influence_distance_offset=0.01)
 
-    ik.AddPositionConstraint(
-        frameB=gripper_frame,
-        p_BQ=np.zeros(3),
-        frameA=world_frame,
-        p_AQ_lower=target_xyz - tol,
-        p_AQ_upper=target_xyz + tol,
-    )
+    ik.AddPositionConstraint(frameB=gripper_frame,
+                             p_BQ=np.zeros(3),
+                             frameA=world_frame,
+                             p_AQ_lower=target_xyz - tol,
+                             p_AQ_upper=target_xyz + tol)
 
     q = ik.q()
 
@@ -233,41 +226,29 @@ def grow_region_chain(
 
         # --- 1. Find the sampled configuration closest to target ---
         
-        q_next, dist = sample_closest_in_region(
-            current_region,
-            plant,
-            context,
-            gripper_frame,
-            target_xyz,
-            generator,
-            seed_point=q_current,
-            n_samples=n_samples_per_hop,
-        )
+        q_next, dist = sample_closest_in_region(current_region, 
+                                                plant, context, 
+                                                gripper_frame,
+                                                target_xyz,
+                                                generator,
+                                                seed_point=q_current,
+                                                n_samples=n_samples_per_hop)
 
         if q_next is None:
-            raise RuntimeError(
-                f"Hop {hop}: sampling failed inside region - "
-                f"region may be degenerate."
-            )
+            raise RuntimeError(f"Hop {hop}: sampling failed inside region - region may be degenerate.")
 
-        print(
-            f"Hop {hop}: closest sampled point is "
-            f"{dist:.4f} m from target."
-        )
+        print(f"Hop {hop}: closest sampled point is {dist:.4f} m from target.")
         
         # --- 2. Try IK to actual target inside current region ---
 
-        q_goal = solve_ik_in_region(
-            plant,
-            context,
-            gripper_frame,
-            world_frame,
-            current_region,
-            q_next,
-            target_xyz,
-            final_tol,
-            checker,
-        )
+        q_goal = solve_ik_in_region(plant,
+                                    context,
+                                    gripper_frame,
+                                    world_frame,
+                                    current_region,
+                                    q_next,
+                                    target_xyz,final_tol,
+                                    checker)
 
         # --- 3. Check for Target reached ---
 
@@ -279,20 +260,16 @@ def grow_region_chain(
             overlap = not current_region.Intersection(goal_region).IsEmpty()
 
             if not overlap:
-                print(
-                    f"WARNING: expected guaranteed overlap failed "
-                    f"at hop {hop} - falling back to a bridging region."
-                )
+                print(f"WARNING: expected guaranteed overlap failed "
+                      f"at hop {hop} - falling back to a bridging region.")
 
                 q_mid = 0.5 * (q_next + q_goal)
 
                 if not checker.CheckConfigCollisionFree(q_mid):
-                    raise RuntimeError(
-                        "Bridging midpoint is in collision - a plain "
-                        "average of two valid configs is not guaranteed "
-                        "collision-free. Need a local search near q_mid "
-                        "instead of using it directly."
-                    )
+                    raise RuntimeError("Bridging midpoint is in collision - a plain "
+                                       "average of two valid configs is not guaranteed "
+                                       "collision-free. Need a local search near q_mid "
+                                       "instead of using it directly.")
 
                 bridge_region = grow_iris_region(checker, q_mid, domain, iris_zo_options)
                 region_chain.append(bridge_region)
@@ -300,10 +277,7 @@ def grow_region_chain(
             region_chain.append(goal_region)
             q_chain.append(q_goal)
 
-            print(
-                f"Reached target at hop {hop}. "
-                f"Chain length: {len(region_chain)} regions."
-            )
+            print(f"Reached target at hop {hop}. Chain length: {len(region_chain)} regions.")
 
             return region_chain, q_chain, q_goal
 
@@ -313,10 +287,7 @@ def grow_region_chain(
         region_chain.append(next_region)
         q_chain.append(q_next)
 
-    raise RuntimeError(
-        f"Exceeded max_hops={max_hops} without reaching "
-        f"a valid IK to the target."
-    )
+    raise RuntimeError(f"Exceeded max_hops={max_hops} without reaching a valid IK to the target.")
 
 
 # ---------------------------------------------- PART 2 ----------------------------------------------

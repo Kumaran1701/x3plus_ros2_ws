@@ -1,6 +1,7 @@
 
 import time
 import numpy as np
+from pathlib import Path
 
 from pydrake.all import (
     AddDefaultVisualization,
@@ -26,6 +27,9 @@ import tempfile
 # ------------------------- Convert 3D Obstacle Vertices to Drake Convex Shape -------------------------
 
 def make_convex_shape(verts):
+    """
+    Convert obstacle vertices into a Drake Convex collision shape.
+    """
     with tempfile.NamedTemporaryFile(suffix=".obj", delete=False, mode="w") as f:
         path = f.name
         for pt in verts:
@@ -39,14 +43,22 @@ def make_convex_shape(verts):
 
 def build_x3plus(obstacle_verts_list, meshcat):
     """
-    Build the Drake X3Plus + Gripper + perceived obstacle geometry into the Plant,
-    Add virtual torque-controlled actuators, and 
-    Add self-collision between enitre robot links.
+    Build the Drake X3Plus + Gripper + perceived obstacle geometry into the Plant.
+    
+    Adds:
+        - X3Plus robot with gripper.
+        - Perceived convex obstacles from point cloud.
+        - Virtual joint actuators for the arm joints (for simulation).
+        - Self-collision filters for robot links.
+        - Meshcat visualization.
 
     Returns:
-        robot_diagram: Drake RobotDiagram containign the complete scene.
-        plane:         MultibodyPlant associated with the RobotDiagram.
+        robot_diagram: Drake RobotDiagram containing the complete scene.
+        plane: MultibodyPlant associated with the RobotDiagram.
     """
+
+    SRC_DIR = Path(__file__).resolve().parents[1]
+    DESCRIPTION_DIR = SRC_DIR / "x3plus_description"
 
     # ---------- 1. Robot Diagram and Model Parsing ----------
     
@@ -57,9 +69,9 @@ def build_x3plus(obstacle_verts_list, meshcat):
 
     t_parse = time.perf_counter()
     parser = rdb.parser()  # Get the unified parser attached to the RobotDiagramBuilder
-    parser.package_map().Add("meshes", "/home/kumaran/Mobile_Manipulator/x3plus_drake/meshes")
-    x3plus = parser.AddModels("urdf/yahboomcar_X3plus_Fixed.urdf")[0]
-    gripper = parser.AddModels("urdf/x3plus_gripper.urdf")[0]
+    parser.package_map().Add("meshes", str(DESCRIPTION_DIR / "meshes"))
+    x3plus = parser.AddModels(str(DESCRIPTION_DIR / "urdf" / "drake_x3plus_fixed.urdf"))[0]
+    gripper = parser.AddModels(str(DESCRIPTION_DIR / "urdf" / "drake_x3plus_gripper.urdf"))[0]
     ConfigureParser(parser)
     print(f"Model parsing time (URDFs): {time.perf_counter() - t_parse:.4f} seconds")
     
@@ -67,17 +79,14 @@ def build_x3plus(obstacle_verts_list, meshcat):
 
     # Weld robot to world 
     t_weld = time.perf_counter()
-    plant.WeldFrames(
-        plant.world_frame(),
-        plant.GetFrameByName("base_footprint", x3plus),
-        RigidTransform([0.40, 0.1, 0.0]),
-    )
+    plant.WeldFrames(plant.world_frame(),
+                     plant.GetFrameByName("base_footprint", x3plus),
+                     RigidTransform([0.40, 0.1, 0.0]))
     # Weld gripper to robot
-    plant.WeldFrames(
-        plant.GetFrameByName('arm_link5', x3plus),
-        plant.GetFrameByName('gripper_base', gripper),
-        RigidTransform.Identity()
-    )
+    plant.WeldFrames(plant.GetFrameByName('arm_link5', x3plus),
+                     plant.GetFrameByName('gripper_base', gripper),
+                     RigidTransform.Identity())
+    
     print(f"Welding frames time: {time.perf_counter() - t_weld:.4f} seconds")
 
     # ---------- 3. Perceived Convex Obstacle Geometry ----------
@@ -86,29 +95,23 @@ def build_x3plus(obstacle_verts_list, meshcat):
         shape_collision = make_convex_shape(verts)
         shape_visual = make_convex_shape(verts)
     
-        plant.RegisterCollisionGeometry(
-            plant.world_body(), RigidTransform(), shape_collision,
-            f"obstacle_{idx}_collision", ProximityProperties()
-        )
-        plant.RegisterVisualGeometry(
-            plant.world_body(), RigidTransform(), shape_visual,
-            f"obstacle_{idx}_visual", np.array([0.9, 0.1, 0.1, 0.5])
-        )
+        plant.RegisterCollisionGeometry(plant.world_body(), RigidTransform(), shape_collision,
+                                        f"obstacle_{idx}_collision", ProximityProperties())
+        plant.RegisterVisualGeometry(plant.world_body(), RigidTransform(), shape_visual,
+                                     f"obstacle_{idx}_visual", np.array([0.9, 0.1, 0.1, 0.5]))
         
     # ---------- 4. Add Joint Actuators (Virtual) ----------------------------
     # --- For Joint Space Control or Operational Space Control----------------
 
     # Note: X3Plus is only Position-Controlled so the output of JSC or OSC
-    #       can only be tested in simualtion and not on the hardware
+    #       can only be tested in simualtion and not on the hardware.
 
     t_finalize = time.perf_counter()
-    arm_joints = [
-        plant.GetJointByName("arm_joint1"),
-        plant.GetJointByName("arm_joint2"),
-        plant.GetJointByName("arm_joint3"),
-        plant.GetJointByName("arm_joint4"),
-        plant.GetJointByName("arm_joint5"),
-    ]
+    arm_joints = [plant.GetJointByName("arm_joint1"),
+                  plant.GetJointByName("arm_joint2"),
+                  plant.GetJointByName("arm_joint3"),
+                  plant.GetJointByName("arm_joint4"),
+                  plant.GetJointByName("arm_joint5")]
     
     for joint in arm_joints:
         plant.AddJointActuator(joint.name(), joint, effort_limit=100.0)
@@ -179,67 +182,47 @@ def build_x3plus(obstacle_verts_list, meshcat):
 # ----------------------------------------------- PART 2 ------------------------------------------------
 # ------- VISUAL MARKERS FOR GRIPPER's POSITION AT TARGET AND PRE-TARGET LOCATIONS IN TASK-SPACE --------
 
-def visualize_target_points(
-    meshcat,
-    centroid,
-    target_offset_point_shifted,
-):
-    # --- Target location ---
-    meshcat.SetObject(
-        path="target_centroid",
-        shape=Sphere(0.01),
-        rgba=Rgba(0.1, 0.9, 0.1, 1.0),
-    )
+def visualize_target_points(meshcat, centroid, target_offset_point_shifted):
+    """
+    Visualize target and pre-target positions in Meshcat.
+    """
+    # Target location 
+    meshcat.SetObject(path="target_centroid",
+                      shape=Sphere(0.01),
+                      rgba=Rgba(0.1, 0.9, 0.1, 1.0))
 
-    meshcat.SetTransform(
-        "target_centroid",
-        RigidTransform(centroid),
-    )
+    meshcat.SetTransform("target_centroid",
+                         RigidTransform(centroid))
 
-    # --- Pre-Target or Offset from target ---
-    meshcat.SetObject(
-        path="target_offset_point",
-        shape=Sphere(0.01),
-        rgba=Rgba(0.1, 0.1, 0.9, 1.0),
-    )
+    # Pre-Target or Offset location from target 
+    meshcat.SetObject(path="target_offset_point",
+                      shape=Sphere(0.01),
+                      rgba=Rgba(0.1, 0.1, 0.9, 1.0))
 
-    meshcat.SetTransform(
-        "target_offset_point",
-        RigidTransform(target_offset_point_shifted),
-    )
+    meshcat.SetTransform("target_offset_point",
+                         RigidTransform(target_offset_point_shifted))
 
     print(f"Target centroid: {centroid}")
-    print(
-        f"Target offset point: "
-        f"{target_offset_point_shifted}"
-    )
+    print(f"Target offset point: {target_offset_point_shifted}")
 
 
 # ----------------------------------------------- PART 3 ------------------------------------------------
-# --------------- DRAKE CLASS TO COLLISION AND DISTANCE QUERIES b/w ROBOT AND ENVIRONMENT ---------------
+# --------------- DRAKE CLASS FOR COLLISION AND DISTANCE QUERIES b/w ROBOT AND ENVIRONMENT ---------------
 
-def create_collision_checker(
-    robot_diagram,
-    plant,
-):
+def create_collision_checker(robot_diagram, plant):
     """
-    Create the Drake SceneGraphCollisionChecker for the X3Plus arm.
-
+    Create a SceneGraphCollisionChecker for robot-environment collision and distance queries.
     Returns:
-        checker: SceneGraphCollisionChecker
+        checker: Instance of Drake's SceneGraphCollisionChecker.
     """
 
     x3plus_model_instance = (plant.GetModelInstanceByName("x3plus"))
 
     gripper_model_instance = (plant.GetModelInstanceByName("x3plus_gripper"))
 
-    checker = SceneGraphCollisionChecker(
-        model=robot_diagram,
-        robot_model_instances=[
-            x3plus_model_instance,
-            gripper_model_instance,
-        ],
-        edge_step_size=0.01,
-    )
+    checker = SceneGraphCollisionChecker(model=robot_diagram,
+                                         robot_model_instances=[x3plus_model_instance,
+                                                                gripper_model_instance],
+                                         edge_step_size=0.01)
 
     return checker

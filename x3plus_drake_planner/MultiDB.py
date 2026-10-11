@@ -2,6 +2,7 @@ import time
 import numpy as np
 import cv2
 import open3d as o3d
+from pathlib import Path
 
 from pydrake.all import (
     GraphOfConvexSetsOptions,
@@ -26,11 +27,18 @@ from drake_utilis import (
 )
 
 from iris_helper import grow_region_chain, animate_iris
+from iris_informed import grow_region_chain_informed
 
 
 # ---------------------------- LOAD NPZ AND CREATE WORLD-FRAME POINTCLOUD -----------------------------
 
 def load_point_cloud(npz_path, max_depth=0.6, voxel_size=0.005):
+    """
+    Load NPZ file from rgbd_pose_dataset and generate pointcloud in world frame.
+    
+    Returns:
+        pcd: downsampled pointcloud.
+    """
 
     data = np.load(npz_path)
 
@@ -42,7 +50,7 @@ def load_point_cloud(npz_path, max_depth=0.6, voxel_size=0.005):
 
     H, W = depth.shape # depth cam resolution
 
-    rgb_resized = cv2.resze(rgb, (W, H)) # resize rgb cam to depth cam resolution 
+    rgb_resized = cv2.resize(rgb, (W, H)) # resize rgb cam to depth cam resolution 
     rgb_flat = rgb_resized.reshape(-1, 3)
 
     # Generate pointcloud in depth cam frame
@@ -77,6 +85,13 @@ def load_point_cloud(npz_path, max_depth=0.6, voxel_size=0.005):
 #  ---------------------- COMPUTE PRE-TASK TARGET POINT FROM THE SELECTED PLANE -----------------------
 
 def compute_target_point(significant_planes, plant, plant_context, q0):
+    """
+    Compute a task-space target from the selected planar surface.
+
+    Returns:
+        centroid: plane centroid,
+        target_offset_point: Pre-task position offset from the target surface.
+    """
 
     target_cloud = np.asarray(significant_planes[2][0].points)
 
@@ -87,7 +102,7 @@ def compute_target_point(significant_planes, plant, plant_context, q0):
     normal /= np.linalg.norm(normal)
 
     gripper_frame = plant.GetFrameByName("grip_joint_parent")
-    plant.SetPosition(plant_context, q0)
+    plant.SetPositions(plant_context, q0)
 
     X_WG_q0 = plant.CalcRelativeTransform(plant_context, plant.world_frame(),
                                           plant.GetFrameByName("grip_joint_parent"))
@@ -106,7 +121,12 @@ def compute_target_point(significant_planes, plant, plant_context, q0):
 # --------------------- BUILD AND SOLVE GCS TRAJECTORY FROM THE IRIS REGION CHAIN ---------------------
 
 def solve_gcs_trajectory(region_chain, q_chain, q_goal, q0, plant, robot_diagram, context):
-
+    """
+    Construct and solve a Grapth-of-Convex-Sets trajectory through the IRIS region chain.
+    
+    Returns:
+        traj: Drake piecewise-polynomial trajectory.
+    """
     # Initialize GCS with active trajectory dimensions 
     gcs = GcsTrajectoryOptimization(len(q0)) 
 
@@ -167,6 +187,9 @@ def solve_gcs_trajectory(region_chain, q_chain, q_goal, q0, plant, robot_diagram
 # -------------------------- EXPORT GCS TRAJECTORY TO A FIXED-RATE NPZ FILE ---------------------------
 
 def export_trajectory(traj, filename="trajectory_export.npz", dt=0.02):
+    """
+    Sample and export a fixed rate Drake trajectory to a NPZ file.
+    """
 
     times = np.arange(0.0, traj.end_time(), dt)
     q_samples = np.array([traj.value(t).ravel() for t in times])
@@ -179,19 +202,29 @@ def export_trajectory(traj, filename="trajectory_export.npz", dt=0.02):
 
 def main():
 
-    # ---------- Part 1: Load perception data ---------------------------------------------------------
+    # ---------- Part 1: Load perception data -----------------------------------------------
 
-    npz_path = "sep3_claude/00000.npz"
+    SRC_DIR = Path(__file__).resolve().parents[1]   
+    PERCEPTION_DIR = SRC_DIR / "x3plus_perception_utils"
+    
+    captures_dir = (
+        PERCEPTION_DIR
+        / "x3plus_perception_utils"
+        / "rgbd_pose_dataset"
+        / "chrissek_tsdf"
+    )
+
+    npz_path = captures_dir / "00010.npz"
     pointcloud = load_point_cloud(npz_path, max_depth=0.6, voxel_size=0.005)
 
-    # ---------- Part 2: Generate collision geometry --------------------------------------------------
+    # ---------- Part 2: Generate collision geometry ----------------------------------------
 
     print("\n---------- Generating collision geometry ----------")
 
     obstacle_verts_list, significant_planes = prepare_complete_collision_geometry(pointcloud)
     print(f"\nGenerated {len(obstacle_verts_list)} collision obstacles")
 
-    # ---------- Part 3: Build Drake X3Plus scene -----------------------------------------------------
+    # ---------- Part 3: Build Drake X3Plus scene -------------------------------------------
 
     meshcat = StartMeshcat()
 
@@ -199,7 +232,7 @@ def main():
     context = robot_diagram.CreateDefaultContext()
     plant_context = plant.GetMyMutableContextFromRoot(context)
 
-    # ---------- Part 4: Set initial arm configuration ------------------------------------------------
+    # ---------- Part 4: Set initial arm configuration --------------------------------------
 
     arm_joints = [
         plant.GetJointByName("arm_joint1"),
@@ -216,7 +249,7 @@ def main():
 
     print("Inital Arm Configuration (q0): ", q0)
 
-    # ---------- Part 5: Select and visualize target point ---------------------------------------------
+    # ---------- Part 5: Select and visualize target point -----------------------------------
 
     centroid, target_offset_point = compute_target_point(significant_planes,
                                                          plant,
@@ -225,13 +258,12 @@ def main():
     
     visualize_target_points(meshcat, centroid, target_offset_point)
 
-    # ---------- Part 6: Intialize Drake collision checker --------------------------------------------- 
+    # ---------- Part 6: Intialize Drake collision checker ------------------------------------
 
     checker = create_collision_checker(robot_diagram, plant)
-
     print("q0 collision-free check: ", checker.CheckConfigCollisionFree(q0))
 
-    # ---------- Part 7: Set up IRIS parameters ---------------------------------------------------------
+    # ---------- Part 7: Set up IRIS parameters -----------------------------------------------
 
     world_frame = plant.world_frame()
     gripper_frame = plant.GetFrameByName("grip_joint_parent")
@@ -254,13 +286,14 @@ def main():
     iris_zo_options.sampled_iris_options.epsilon = 0.01
     iris_zo_options.sampled_iris_options.delta = 0.01
 
-    # ---------- Part 8: Sequential grow IRIS toward 'target_offset_point' ------------------------------
+    # ---------- Part 8: Sequential grow IRIS toward 'target_offset_point' --------------------
 
+    target_offset_point = [0.67860311, 0.05494937, 0.38887407]
     print(f"\nSequentially growing IRIS towards {target_offset_point}")
 
     t0 = time.perf_counter()
 
-    region_chain, q_chain, q_goal = grow_region_chain(checker,
+    region_chain, q_chain, q_goal = grow_region_chain_informed(checker,
                                                       plant,
                                                       plant_context,
                                                       gripper_frame,
@@ -270,12 +303,12 @@ def main():
                                                       domain,
                                                       iris_zo_options)
 
-    print(f"IRIS region generation took: {time.perf_counter - t0:.4f} s")
+    print(f"IRIS region generation took: {time.perf_counter() - t0:.4f} s")
     print(f"Generated {len(region_chain)} IRIS regions.")
     print("q_goal: ", q_goal)
     print("q_goal collision-free check: ", checker.CheckConfigCollisionFree(q_goal))
 
-    # ---------- part 9: GCS trajectory optimization ----------------------------------------------------
+    # ---------- part 9: GCS trajectory optimization ------------------------------------------
 
     traj = solve_gcs_trajectory(region_chain,
                                 q_chain,
@@ -287,7 +320,7 @@ def main():
 
     print("Trajectory execution time: ", traj.end_time())
 
-    # ---------- Part 10: Sample and export GCS trajectory ----------------------------------------------
+    # ---------- Part 10: Sample and export GCS trajectory ------------------------------------
 
     export_trajectory(traj, filename="trajectory_export.npz", dt=0.02)
 
