@@ -4,3 +4,5 @@ log/
 __pycache__/
 *.pyc
 *.npz
+/x3plus_description/meshes/X3plus/collision/base_link_wo_wheels.obj
+/x3plus_description/meshes/X3plus/visual/base_link_wo_wheels.obj
