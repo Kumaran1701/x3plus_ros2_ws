@@ -3,7 +3,7 @@
 Robot models for the Yahboom X3Plus mobile manipulator. It gives the ROS 2 tools and the Drake planning pipeline a shared description of the robot's links, joints, sensor mounts and geometry, in two forms: the ROS 2 description used by bringup and visualization, and a reduced Drake model prepared for motion planning.
 
 For the hardware interfaces and state estimation, see
-[`x3plus_bringup`](../x3plus_bringup/README.md).
+[`x3plus_bringup`](../x3plus_bringup).
 
 ## Models
 
