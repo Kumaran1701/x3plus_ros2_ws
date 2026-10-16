@@ -105,7 +105,7 @@ region is grown around the target and if it also overlaps with the home region t
 
 Defaults: up to 6 hops, 6 bisection probes, 15 fallback candidates, 1 cm required progress per hop and a
 1 cm position tolerance. A hop costs at most 22 IK solves (1 goal check, 6 probes, 15 candidates) and one
-IrisZo call. Typical result on the test scene: `[fill in: number of regions and planning time]`.
+IrisZo call. Typical result on the test scene: `[fill-in]`.
 
 Limits of the strategy: every hop must bring the gripper at least 1 cm closer to the target, and the chain
 never backtracks, so a route that first has to move away from the target to get around an obstacle is not
@@ -154,7 +154,7 @@ needs the large OBJ meshes described in the `x3plus_description` README.
 - **Regions are probabilistic, and no clearance margin is applied yet.**
 - **Points classified as noise are dropped**, so very thin or sparsely captured obstacles may be missing
   from the collision model.
-- **Timings:** `[fill in: measured planning times, with the scene and number of runs]`.
+- **Timings:** `[fill-in]`.
 
 ## Planned
 
