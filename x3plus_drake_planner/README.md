@@ -10,10 +10,16 @@ The current scope is to plan a trajectory for the arm to a reach a pre-task pose
 
 ## Pipeline
 
-**RGB-D capture** (`.npz`) → **World-frame point cloud** → **RANSAC, staged
-DBSCAN and convex-hull obstacles** → **Drake scene and target** → **IRIS
-region chain** → **GCS trajectory** → **Meshcat visualization and sampled
-`trajectory_export.npz`**
+```mermaid
+flowchart LR
+    A[RGB-D capture] --> B[World point cloud]
+    B --> C[Planes + DBSCAN<br/>convex obstacles]
+    C --> D[Drake scene<br/>robot + obstacles]
+    D --> E[Target point]
+    E --> F[IRIS region chain]
+    F --> G[GCS trajectory]
+    G --> H[Meshcat + sampled NPZ]
+```
 
 ## Stages and why they work this way
 
@@ -56,6 +62,22 @@ randomly, the regions are seeded relative to the target at each *hop*. A *hop*
 is a C-space configuration seed between q0 and q_goal, such that growing a
 region at each hop leads to a chain of overlapping regions. The steps below
 describe the informed region-chain strategy.
+
+```mermaid
+flowchart TD
+    A[Grow home region] --> B{Direct IK and goal region<br/>connect to home?}
+    B -->|Yes| Z[Region chain complete]
+    B -->|No| C[Find next seed<br/>toward target]
+    C --> D{Bisection makes<br/>enough progress?}
+    D -->|No| E[Try spheroid candidates]
+    E --> F{Candidate found?}
+    F -->|No| X[Stop: boxed in]
+    F -->|Yes| G[Grow next region]
+    D -->|Yes| G
+    G --> H{Reached or connected<br/>to goal region?}
+    H -->|Yes| Z
+    H -->|No| C
+```
 
 1. **Direct attempt.** IK to the target is solved with only the joint limit constraints. If it succeeds, a goal 
 region is grown around the target and if it also overlaps with the home region then the chain is two regions long.
