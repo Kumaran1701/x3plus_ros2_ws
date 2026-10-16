@@ -10,20 +10,10 @@ The current scope is to plan a trajectory for the arm to a reach a pre-task pose
 
 ## Pipeline
 
-```mermaid
-flowchart TD
-    CAP[RGB-D capture .npz<br/>depth, intrinsics, camera pose]
-    CLOUD[World-frame point cloud<br/>MultiDB.py]
-    GEOM[RANSAC planes, staged DBSCAN,<br/>convex hulls<br/>collision_utilis.py]
-    SCENE[Drake scene: X3Plus + gripper + obstacles<br/>collision checker<br/>drake_utilis.py]
-    GOAL[Target point<br/>MultiDB.py]
-    IRIS[Chain of IrisZo regions<br/>iris_informed.py, iris_helper.py]
-    GCS[GCS trajectory through the chain<br/>MultiDB.py]
-    OUT[Meshcat view + trajectory_export.npz]
-
-    CAP --> CLOUD --> GEOM --> SCENE
-    SCENE --> GOAL --> IRIS --> GCS --> OUT
-```
+**RGB-D capture** (`.npz`) → **World-frame point cloud** → **RANSAC, staged
+DBSCAN and convex-hull obstacles** → **Drake scene and target** → **IRIS
+region chain** → **GCS trajectory** → **Meshcat visualization and sampled
+`trajectory_export.npz`**
 
 ## Stages and why they work this way
 
@@ -60,29 +50,12 @@ five arm joints are free (see [`x3plus_description`](../x3plus_description/READM
 
 ### The informed region chain (`iris_informed.py`)
 
-The aim is to connect the home configuration, q0 to the goal configuration, q_goal with few regions as possible. Instead of sampling the C-space randomly, the regions are seeded relative to the targer's position at each *hop*. A *hop* is a C-space configuration seed between q0 and q_goal, such that when a region is grown at each hop it leads to a chain of overlapping regions.
-
-```mermaid
-flowchart TD
-    A[Grow home region at q0] --> B[IK to target, joint limits only]
-    B -->|solved| C[Grow goal region at the solution]
-    C -->|overlaps home| Z[Done: two regions]
-    B -->|failed| D
-    C -->|no overlap| D
-    D[Next hop] --> E{Goal region known?}
-    E -->|no| F[IK to target inside current region]
-    F -->|solved| Y[Grow goal region: done]
-    F -->|failed| G
-    E -->|yes| G
-    G[Bisect along the straight line to the target<br/>region-constrained IK probes] --> H{Gained at least 1 cm?}
-    H -->|no| I[Spheroid candidates, nearest to target first]
-    I -->|none feasible| X[Error: boxed in]
-    I -->|found| J
-    H -->|yes| J[Grow an IrisZo region at the best configuration]
-    J --> K{Overlaps the known goal region?}
-    K -->|yes| W[Done]
-    K -->|no| D
-```
+The aim is to connect the home configuration, q0, to the goal configuration,
+q_goal, with as few regions as possible. Instead of sampling the C-space
+randomly, the regions are seeded relative to the target at each *hop*. A *hop*
+is a C-space configuration seed between q0 and q_goal, such that growing a
+region at each hop leads to a chain of overlapping regions. The steps below
+describe the informed region-chain strategy.
 
 1. **Direct attempt.** IK to the target is solved with only the joint limit constraints. If it succeeds, a goal 
 region is grown around the target and if it also overlaps with the home region then the chain is two regions long.
