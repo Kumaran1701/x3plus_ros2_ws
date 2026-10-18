@@ -80,7 +80,7 @@ flowchart TD
 ```
 
 1. **Direct attempt.** IK to the target is solved with only the joint limit constraints. If it succeeds, a goal 
-region is grown around the target and if it also overlaps with the home region then the chain is two regions long.
+   region is grown around the target and if it also overlaps with the home region then the chain is two regions long.
 
 2. **Bisection.** From the gripper's current position, bisection along the straight line to the target
    asks how far along that line the end effector can go while the configuration stays inside the
