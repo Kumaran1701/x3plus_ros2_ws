@@ -1,6 +1,6 @@
 # `x3plus_motion_planner`
 
-Motion execution package for the X3Plus robot. It contains nodes to validate step by step planned arm trajectory on the hardware, stream the complete trajectory to the hardware and execute a lateral strafe motion when capturing of `rgbd_pose_dataset` has begun. This package only executes what the planner computes, trajectory planning is executed in `x3plus_drake_planner`(../x3plus_drake_planner/README.md), interface to arm is provided by `x3plus_bringup`(../x3plus_bringup/README.md) and saving `rgbd_pose_dataset` is done in `x3plus_perception_utils`(../x3plus_perception_utils/README.md). For the project overview, see the [repository README](../README.md).
+Motion execution package for the X3Plus robot. It contains nodes to validate step by step planned arm trajectory on the hardware, stream the complete trajectory to the hardware and execute a lateral strafe motion when capturing of `rgbd_pose_dataset` has begun. This package only executes what the planner computes, trajectory planning is executed in [`x3plus_drake_planner`](../x3plus_drake_planner/README.md), interface to arm is provided by `x3plus_bringup`(../x3plus_bringup/README.md) and saving `rgbd_pose_dataset` is done in [`x3plus_perception_utils`](../x3plus_perception_utils/README.md). For the project overview, see the [repository README](../README.md).
 
 ROS 2 Python nodes for validating and publishing planned arm trajectories on
 the Yahboom X3Plus, plus a closed-loop lateral strafe node used to collect
