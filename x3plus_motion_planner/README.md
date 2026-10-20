@@ -6,27 +6,6 @@ Motion execution package for the X3Plus robot. It contains nodes to validate ste
 
 ```mermaid
 flowchart LR
-    PLAN[Drake sampled trajectory<br/>times, q in radians]
-    TEST[arm_safety_test.py<br/>staged hardware checks]
-    PLAY[trajectory_publisher.py<br/>50 Hz interpolation]
-    DRIVER[x3plus_bringup<br/>Rosmaster driver]
-    ROBOT[X3Plus arm]
-    ODOM[Filtered odometry]
-    STRAFE[strafe_motion.py<br/>closed-loop lateral motion]
-    CAPTURE[capture_rgbd_pose.py<br/>RGB-D + pose captures]
-
-    PLAN --> TEST
-    PLAN --> PLAY
-    TEST -->|TargetAngle| DRIVER
-    PLAY -->|TrajectoryAngle| DRIVER
-    DRIVER --> ROBOT
-    ODOM --> STRAFE
-    STRAFE -->|cmd_vel| DRIVER
-    STRAFE -->|recording_enabled| CAPTURE
-```
-
-```mermaid
-flowchart LR
     PLAN["Planner<br/>x3plus_drake_planner"] -->|"NPZ: times, q"| TEST["arm_safety_test<br/>static, micro, single, short"]
     TEST -->|"TargetAngle"| DRV["x3plus_driver<br/>x3plus_bringup"]
     TEST -.->|"arm validated, at start pose"| CTRL["Trajectory controller<br/>50 Hz"]
