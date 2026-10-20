@@ -10,6 +10,7 @@ from sensor_msgs.msg import Image, CameraInfo
 from cv_bridge import CvBridge
 from tf2_ros import Buffer, TransformListener, TransformException
 from rclpy.duration import Duration
+from rclpy.time import Time
 from std_msgs.msg import Bool
 
 
@@ -19,7 +20,7 @@ def disk_writer_worker(queue):
         item = queue.get()
         if item is None:
             break
-        (frame_idx, cv_depth, cv_rgb, pose_matrix,
+        (frame_idx, cv_depth, cv_rgb, pose_matrix, timestamp_ns,
          depth_intrinsics, depth_distortion,
          rgb_intrinsics, rgb_distortion, output_dir) = item
         np.savez_compressed(
@@ -27,6 +28,7 @@ def disk_writer_worker(queue):
             depth=cv_depth,
             rgb=cv_rgb,
             pose=pose_matrix,
+            timestamp_ns=np.int64(timestamp_ns),
             depth_intrinsics=depth_intrinsics,
             depth_distortion=depth_distortion,
             rgb_intrinsics=rgb_intrinsics,
@@ -144,16 +146,26 @@ class RGBDPoseRecorder(Node):
             return
 
         timestamp = depth_msg.header.stamp
+        timestamp_ns = timestamp.sec * 1_000_000_000 + timestamp.nanosec
+        if timestamp_ns == 0:
+            self.get_logger().warn(
+                "Skipping frame: image timestamp is zero; cannot look up timestamped TF.",
+                throttle_duration_sec=2.0,
+            )
+            return
+
         try:
-            # Passing rclpy.time.Time() tells ROS to give us the absolute latest known transform
             tf_transform = self.tf_buffer.lookup_transform(
                 self.world_frame, 
                 self.camera_frame, 
-                rclpy.time.Time(), 
+                Time.from_msg(timestamp),
                 timeout=Duration(seconds=0.05)
             )
         except TransformException:
-            self.get_logger().warn("Skipping frame: Failed to look up TF link between frames.", throttle_duration_sec=2.0)
+            self.get_logger().warn(
+                "Skipping frame: Failed to look up TF at the image timestamp.",
+                throttle_duration_sec=2.0,
+            )
             return
 
         t = tf_transform.transform.translation
@@ -182,7 +194,7 @@ class RGBDPoseRecorder(Node):
 
         try:
             self.save_queue.put_nowait((
-                frame_idx, cv_depth, cv_rgb, pose_matrix,
+                frame_idx, cv_depth, cv_rgb, pose_matrix, timestamp_ns,
                 self.depth_intrinsics, self.depth_distortion,
                 self.depth_intrinsics, self.depth_distortion, self.output_dir
             ))
@@ -192,7 +204,10 @@ class RGBDPoseRecorder(Node):
 
         self.last_saved_position = current_position.copy()
         self.frame_count += 1
-        self.get_logger().info(f"Saved capture {frame_idx} at translation offset Y={t.y:.3f}m")
+        self.get_logger().info(
+            f"Saved capture {frame_idx} at image timestamp {timestamp_ns} ns "
+            f"and translation offset Y={t.y:.3f}m"
+        )
 
 
     def quaternion_to_matrix(self, x, y, z, w):

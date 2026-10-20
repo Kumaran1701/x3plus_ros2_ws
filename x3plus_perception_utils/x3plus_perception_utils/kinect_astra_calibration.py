@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 
+import os
+
 import cv2
 import numpy as np
 import yaml
+
+from ament_index_python.packages import get_package_share_directory
 
 import rclpy
 from rclpy.node import Node
@@ -46,7 +50,8 @@ class KinectExtrinsicCalibrator(Node):
         self.astra_frame = 'camera_color_optical_frame'
         self.kinect_frame = 'camera_base'
 
-        self.output_file = 'kinect_extrinsic.yaml'
+        pkg_path_bringup = get_package_share_directory('x3plus_bringup')
+        self.output_file = os.path.join(pkg_path_bringup, 'config', 'kinect_extrinsic.yaml')
         
         # ---------- ChArUco board definition ----------
 
