@@ -1,6 +1,6 @@
 # X3Plus ROS 2 Workspace
 
-Research workspace for autonomous manipulation with the Yahboom X3Plus mobile
+Workspace for autonomous manipulation with the Yahboom X3Plus mobile
 manipulator. The long-term project is organized as three stages: navigate the
 mobile base to a task location, perceive the local scene and plan a
 collision-aware arm approach, then perceive and execute the manipulation task.
