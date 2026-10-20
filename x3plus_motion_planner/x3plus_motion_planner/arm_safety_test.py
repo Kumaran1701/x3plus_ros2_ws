@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 from multiprocessing.dummy import shutdown
+import os
 
 import numpy as np
+from ament_index_python.packages import get_package_share_directory
 import rclpy
 from rclpy.node import Node
 from x3plus_msgs.msg import ArmJoint
@@ -26,11 +28,14 @@ class ArmSafetyTest(Node):
         """
 
         super().__init__('arm_safety_test')
+        
+        pkg_path_motion_planner = get_package_share_directory("x3plus_motion_planner")
+        traj_file = os.path.join(pkg_path_motion_planner, "trajectory", "trajectory_export.npz")
 
         # Test configuration.
         self.declare_parameter("mode", "static")
         self.declare_parameter("test_joint", 1)
-        self.declare_parameter("traj_file", "")
+        self.declare_parameter("traj_file", str(traj_file))
 
         self.mode = self.get_parameter("mode").get_parameter_value().string_value
         self.test_joint = self.get_parameter("test_joint").get_parameter_value().integer_value

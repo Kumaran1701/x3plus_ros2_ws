@@ -1,15 +1,6 @@
 # `x3plus_motion_planner`
 
-Motion execution package for the X3Plus robot. It contains nodes to validate step by step planned arm trajectory on the hardware, stream the complete trajectory to the hardware and execute a lateral strafe motion when capturing of `rgbd_pose_dataset` has begun. This package only executes what the planner computes, trajectory planning is executed in [`x3plus_drake_planner`](../x3plus_drake_planner/README.md), interface to arm is provided by `x3plus_bringup`(../x3plus_bringup/README.md) and saving `rgbd_pose_dataset` is done in [`x3plus_perception_utils`](../x3plus_perception_utils/README.md). For the project overview, see the [repository README](../README.md).
-
-ROS 2 Python nodes for validating and publishing planned arm trajectories on
-the Yahboom X3Plus, plus a closed-loop lateral strafe node used to collect
-RGB-D captures at different base positions. The package connects the Drake
-trajectory output to the arm interface provided by
-[`x3plus_bringup`](../x3plus_bringup/README.md). It does not generate
-collision geometry or plan trajectories itself.
-
-For the wider project context, see the [repository README](../README.md).
+Motion execution package for the X3Plus robot. It contains nodes to validate step by step planned arm trajectory on the hardware, stream the complete trajectory to the hardware and execute a lateral strafe motion when capturing of `rgbd_pose_dataset` has begun. This package only executes what the planner computes, trajectory planning is executed in [`x3plus_drake_planner`](../x3plus_drake_planner/README.md), interface to arm is provided by [`x3plus_bringup`](../x3plus_bringup/README.md) and saving `rgbd_pose_dataset` is done in [`x3plus_perception_utils`](../x3plus_perception_utils/README.md). For the project overview, see the [repository README](../README.md).
 
 ## Data flow
 
@@ -34,6 +25,18 @@ flowchart LR
     STRAFE -->|recording_enabled| CAPTURE
 ```
 
+```mermaid
+flowchart LR
+    PLAN["Planner<br/>x3plus_drake_planner"] -->|"NPZ: times, q"| TEST["arm_safety_test<br/>static, micro, single, short"]
+    TEST -->|"TargetAngle"| DRV["x3plus_driver<br/>x3plus_bringup"]
+    TEST -.->|"arm validated, at start pose"| CTRL["Trajectory controller<br/>50 Hz"]
+    PLAN -->|"NPZ: times, q"| CTRL
+    CTRL -->|"TrajectoryAngle"| DRV
+    ODOM["/odometry/filtered"] --> STRAFE["Strafe node"]
+    STRAFE -->|"cmd_vel"| DRV
+    STRAFE -->|"/recording_enabled"| REC["RGB-D recorder<br/>x3plus_perception_utils"]
+```
+
 ## Nodes
 
 | Script | Node | Purpose |
@@ -50,30 +53,36 @@ The trajectory publisher expects a NumPy `.npz` file containing:
 - `q`: an `N x 5` array of arm joint positions in radians, in the order
   expected by the Drake model and the downstream servo mapping.
 
-The Drake planner currently writes `trajectory_export.npz`; the publisher's
-default filename is `trajectory_export_minjerk.npz`. Pass `traj_file` to select
-the file you intend to execute.
-
-At each control tick, the publisher linearly interpolates each joint between
+At each tier callback, the publisher linearly interpolates each joint between
 neighboring samples. It converts radians to servo degrees using
 `degrees(q) + 90`, appends the current sixth servo angle (the gripper) from
 the `CurrentAngle` service, and publishes an `x3plus_msgs/msg/ArmJoint` on
-`TrajectoryAngle` with `run_time = 0`. In the bringup driver, this topic sends
+`TrajectoryAngle` with `run_time = 0`. In the `x3plus_bringup/x3plus_driver.py`, this topic sends
 each waypoint directly to the controller without a separate timed
-interpolation. The trajectory publisher runs at 50 Hz by default and sends
-the final sample before shutting down.
+interpolation by the ROSMASTER. The trajectory publisher runs at 50 Hz by default and shutsdown after sending the final sample.
 
-The publisher reads the current servo-angle array to preserve the gripper
-position. It does not compare the current arm position with the trajectory's
-first sample, measure trajectory tracking error, or provide a feedback
-controller. Confirm the arm's starting pose and servo mapping before running a
-trajectory.
+**`NOTE:`** The servos provide position feedback, available through the
+`CurrentAngle` service. During playback, the publisher requests feedback
+without blocking the command loop, compares each returned arm-angle reading
+with the desired trajectory position associated with that request, and saves
+the readings and errors to `trajectory_error.csv` in the current directory.
+Service requests are serialized, so the comparison sampling rate depends on
+the service response time and may be lower than the command rate. At completion,
+the publisher reports per-joint MAE, RMSE, and maximum absolute error in degrees.
+The CSV's signed error is measured servo angle minus desired servo angle;
+desired and measured positions are also included in radians. Set the
+`error_file` parameter to change the output path. This is monitoring only: it
+does not adjust commands or stop playback when an error is large. Confirm the
+arm's starting pose and servo mapping before
+running a trajectory. At startup the driver sets the arm to the default
+configuration which is always used by Drake as the initial configuration
+during trajectory planning.
 
 ## Hardware checks with `arm_safety_test.py`
 
 The safety-test node waits for the `CurrentAngle` service even in `static`
-mode. Its `mode` parameter defaults to `static`, which queries and reports the
-current angles without sending a movement command.
+mode. Its `mode` parameter defaults to `static`. It queries and reports the
+current angles without sending a movement command. The `static` is set as default to ensure that each test is performed consciously as a fail safe against directly jumping to `single` or `short`. Once tested, the `trajectory_export.npz` doesn't need to be tested again unless there is change in the trajectory format.
 
 | Mode | Behavior |
 | --- | --- |
@@ -82,85 +91,15 @@ current angles without sending a movement command.
 | `single` | Loads a trajectory and commands its first `q` sample as a single target, using a 400 ms controller interpolation. |
 | `short` | Plays every sixth trajectory sample, with a timed command for each reduced-rate waypoint. |
 
-Examples:
-
-```bash
-# No-motion service check
-ros2 run x3plus_motion_planner arm_safety_test.py
-
-# Small motion on arm joint 1
-ros2 run x3plus_motion_planner arm_safety_test.py --ros-args \
-  -p mode:=micro -p test_joint:=1
-
-# Move to the first trajectory waypoint
-ros2 run x3plus_motion_planner arm_safety_test.py --ros-args \
-  -p mode:=single -p traj_file:=/absolute/path/to/trajectory_export.npz
-
-# Play the reduced-waypoint trajectory test
-ros2 run x3plus_motion_planner arm_safety_test.py --ros-args \
-  -p mode:=short -p traj_file:=/absolute/path/to/trajectory_export.npz
-```
-
-These are staged checks, not a collision-safety guarantee. Start with `static`,
-then validate a small motion with the robot supported and the workspace clear
-before testing trajectory waypoints.
-
-## Full trajectory playback
-
-Start the robot bringup and verify that the arm and controller are ready.
-Inspect the trajectory file, joint order, units, and initial configuration;
-keep the robot's motion envelope clear and remain able to stop execution.
-Then run:
-
-```bash
-ros2 run x3plus_motion_planner trajectory_publisher.py --ros-args \
-  -p traj_file:=/absolute/path/to/trajectory_export.npz \
-  -p control_hz:=50.0
-```
-
-Parameters:
-
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `traj_file` | `trajectory_export_minjerk.npz` | Path to the input trajectory file, resolved relative to the process working directory unless absolute. |
-| `control_hz` | `50.0` | Rate at which the node samples and publishes the trajectory. |
-
-The node waits for `CurrentAngle`, loads the file, streams commands on
-`TrajectoryAngle`, sends the endpoint, then shuts down. The arm driver accepts
-these commands directly; this node does not verify that the physical arm
-reached each commanded position.
 
 ## Strafe and RGB-D capture
 
-`strafe_motion.py` waits for `/odometry/filtered`, records the first received
-pose as its local reference, then commands lateral targets of +0.10 m, -0.10 m,
-and 0 m relative to that starting pose. Thus the middle leg travels across the
-center to 0.10 m on the other side. It publishes body-frame `TwistStamped`
-commands to `cmd_vel` at 50 Hz and uses filtered yaw to compensate for heading
-changes.
+`strafe_motion.py` waits for `/odometry/filtered`, records the first received pose as its local reference, then commands lateral targets of +0.10 m, -0.10 m, and 0 m relative to that starting pose. Thus the middle motion travels across the center to 0.10 m on the other side. It publishes body-frame `TwistStamped` message to `cmd_vel` at 50 Hz and uses filtered yaw to compensate for heading changes.
 
-The node publishes `true` and `false` on `/recording_enabled` at the start and
-end of its sequence. To save captures, run the RGB-D camera and the
-`x3plus_perception_utils` recorder as well, with TF available between the
-recorder's world and camera frames. The recorder defaults to saving in
-`tsdf_dataset`; its output directory can be configured on that node.
+The node publishes `true` and `false` on `/recording_enabled` at the start and end of its sequence. To save captures, launch the driver file under `Azure_Kinect_ROS_Driver` and the `x3plus_perception_utils/capture_rgbd_pose.py` as well. Make sure TF is available between the recorder's world and camera frames (published by `x3plus_bringup`). The recorder defaults to saving in `x3plus_perception_utils/rgbd_pose_dataset/latest`.
 
-Default strafe parameters:
+**`NOTE:`** This motion is soley executed to get multiple captures to do a local reconstruction of the scene. The safety needs to manually monitored, therefore make sure to have enough empty area for the robot to move.  The next section of this project, mobile motion planning and localization will replace this temporary strafe motion.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `kp_linear` | `1.5` | Proportional gain for planar position error. |
-| `kp_angular` | `2.0` | Proportional gain for heading error. |
-| `linear_tolerance_m` | `0.01` | Lateral position tolerance for advancing to the next target. |
-| `max_linear_speed` | `0.15` | Maximum commanded linear speed in m/s. |
-| `max_angular_speed` | `0.25` | Maximum commanded angular speed in rad/s. |
-
-**Known issue to check before using the strafe node on hardware:** when a
-lateral target is reached, the current implementation calls
-`publish_twist(0.0, 0.0, v_omega)`. Since the function arguments are
-`(angular_z, vx, vy)`, this places the heading correction in lateral velocity
-instead of angular velocity for that control tick. The heading-hold behavior
-at the target should not be relied on until this is corrected.
 
 ## Interfaces
 
@@ -178,23 +117,32 @@ message packages including `geometry_msgs`, `nav_msgs`, and `std_msgs`. Hardware
 operation additionally requires the X3Plus bringup stack and, for capture,
 the camera and perception-recorder dependencies.
 
+
 ## Build
 
-From the workspace root, after installing the package's ROS dependencies:
+> **Hardware safety:** trajectory feedback is monitored but does not adjust commands or stop the
+> arm if tracking error is large. The base keeps its last commanded velocity if the node commanding it crashes (the driver has no timeout; interrupting the
+> strafe node with Ctrl-C does stop the base). Clear the workspace around the arm and base, start
+> with the smallest test, and be ready to cut power.
+
+Start `x3plus_bringup`, then validate a trajectory in order, and run it:
 
 ```bash
 colcon build --packages-select x3plus_motion_planner
 source install/setup.bash
+
+ros2 run x3plus_motion_planner arm_safety_test.py --ros-args -p mode:=micro -p test_joint:=2
+ros2 run x3plus_motion_planner arm_safety_test.py --ros-args -p mode:=single
+ros2 run x3plus_motion_planner arm_safety_test.py --ros-args -p mode:=short
+
+ros2 run x3plus_motion_planner trajectory_publisher.py
 ```
 
-For hardware use, make sure the message package and bringup nodes are built in
-the same workspace. For example:
+For the strafe capture, start the RGB-D recorder first, then the strafe node:
 
 ```bash
-colcon build --packages-select \
-  x3plus_msgs x3plus_bringup x3plus_motion_planner
+colcon build --packages-select x3plus_motion_planner x3plus_perception_utils
 source install/setup.bash
-```
 
-Add `x3plus_perception_utils` to the build when using the strafe node with its
-RGB-D recorder.
+ros2 run x3plus_motion_planner capture_rgbd_pose.py
+```

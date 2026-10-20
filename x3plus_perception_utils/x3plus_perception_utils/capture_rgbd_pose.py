@@ -5,6 +5,7 @@ import numpy as np
 import os
 import multiprocessing as mp
 
+from ament_index_python.packages import get_package_share_directory
 from sensor_msgs.msg import Image, CameraInfo
 from cv_bridge import CvBridge
 from tf2_ros import Buffer, TransformListener, TransformException
@@ -45,10 +46,12 @@ class RGBDPoseRecorder(Node):
     def __init__(self):
         super().__init__('rgbd_pose_recorder')
 
+        pkg_path_perception = get_package_share_directory('x3plus_perception_utils')
+
         # --- Parameters ---
         self.declare_parameter('world_frame', 'odom')
         self.declare_parameter('camera_frame', 'depth_camera_link')
-        self.declare_parameter('output_directory', 'tsdf_dataset')
+        self.declare_parameter('output_directory', os.path.join(pkg_path_perception, 'rgbd_pose_dataset/latest'))
         self.declare_parameter('max_captures', 0)               
         self.declare_parameter('min_translation_m_between_captures', 0.01) # 1cm
         self.declare_parameter('recording_enabled', True)       

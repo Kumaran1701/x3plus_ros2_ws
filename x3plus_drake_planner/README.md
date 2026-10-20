@@ -131,7 +131,8 @@ python MultiDB.py
 
 `MultiDB.py` reads one capture, `x3plus_perception_utils/x3plus_perception_utils/rgbd_pose_dataset/chrissek_tsdf/00010.npz`,
 containing `depth` (millimetres), `rgb`, `pose` and `depth_intrinsics` (`fx, fy, cx, cy, ...`). It
-starts a Meshcat server and writes `trajectory_export.npz` to the current directory. Paths and planning
+starts a Meshcat server and writes `trajectory_export.npz` to `x3plus_motion_planner/trajectory`.
+Paths and planning
 values, including the start configuration, are set in the script, not on the command line. The scripts
 find the sibling packages by relative path, so keep the workspace layout. This directory has no
 `package.xml`.

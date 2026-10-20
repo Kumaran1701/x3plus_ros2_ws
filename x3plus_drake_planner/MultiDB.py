@@ -186,12 +186,25 @@ def solve_gcs_trajectory(region_chain, q_chain, q_goal, q0, plant, robot_diagram
 
 # -------------------------- EXPORT GCS TRAJECTORY TO A FIXED-RATE NPZ FILE ---------------------------
 
-def export_trajectory(traj, filename="trajectory_export.npz", dt=0.02):
+def export_trajectory(traj, filename=None, dt=0.02):
     """
     Sample and export a fixed rate Drake trajectory to a NPZ file.
     """
 
-    times = np.arange(0.0, traj.end_time(), dt)
+    if filename is None:
+        filename = (
+            Path(__file__).resolve().parents[1]
+            / "x3plus_motion_planner"
+            / "trajectory"
+            / "trajectory_export.npz"
+        )
+    filename = Path(filename)
+    filename.parent.mkdir(parents=True, exist_ok=True)
+
+    end_time = traj.end_time()
+    times = np.arange(0.0, end_time, dt)
+    if times.size == 0 or times[-1] < end_time:
+        times = np.append(times, end_time)
     q_samples = np.array([traj.value(t).ravel() for t in times])
 
     np.savez(filename, times=times, q=q_samples)
@@ -322,7 +335,7 @@ def main():
 
     # ---------- Part 10: Sample and export GCS trajectory ------------------------------------
 
-    export_trajectory(traj, filename="trajectory_export.npz", dt=0.02)
+    export_trajectory(traj, dt=0.02)
 
     print("\nSequence completed.")
 

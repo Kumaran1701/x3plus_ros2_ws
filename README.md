@@ -7,5 +7,5 @@ demonstrations, will be added soon. Links to package specific documentation are 
 
 - [x3plus_bringup](x3plus_bringup/README.md)
 - [x3plus_description](x3plus_description/README.md)
-- [x3plus_drake_planner](x3plus_drake_planner)
+- [x3plus_drake_planner](x3plus_drake_planner/README.md)
 - [x3plus_motion_planner](x3plus_motion_planner/README.md)

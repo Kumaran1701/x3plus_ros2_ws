@@ -144,6 +144,7 @@ loads `urdf/x3plus.gazebo.urdf.xacro` from `x3plus_description` for `robot_state
 ## Things to be aware of
 
 - **Arm `/joint_states` are the last commanded angles, not servo feedback.** The servos
-report no position, load or current. To read the real angles, call the `CurrentAngle` service, and use it for anything that plans from the current arm state.
+provide position feedback through the controller; call the `CurrentAngle` service to read
+the reported servo positions. Consumers that need measured arm state should use this
+service rather than `/joint_states`.
 - **The strafe-and-capture poses inherit the odometry error** described above, so the quality of the reconstruction depends on it.
-

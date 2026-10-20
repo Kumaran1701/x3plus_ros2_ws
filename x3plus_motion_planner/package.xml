@@ -10,6 +10,7 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclpy</depend>
+  <exec_depend>ament_index_python</exec_depend>
   <depend>sensor_msgs</depend>
   <depend>sensor_msg_py</depend>
   <depend>std_msgs</depend>
