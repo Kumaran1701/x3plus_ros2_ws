@@ -11,14 +11,9 @@ class EkfMecanumStrafeNode(Node):
 
     def __init__(self):
         """
-        Executes a pre-defined lateral strafe motion using EKF-filtered odometry.
+        Strafe 10 cm right from the initial pose using EKF-filtered odometry.
 
-        Strafe Motion:
-        1. Start -> Left 10cm
-        2. Left -> Right 10cm (Pass through center to 10cm right)
-        3. Right -> Center (Return to starting position)
-
-        Position controlled using robot's intiial reference frame, 
+        Position is controlled using the robot's initial reference frame,
         while heading is actively maintained using yaw feedback.
         """
 
@@ -37,12 +32,10 @@ class EkfMecanumStrafeNode(Node):
         self.max_linear_speed = self.get_parameter('max_linear_speed').value
         self.max_angular_speed = self.get_parameter('max_angular_speed').value
 
-        # Target lateral offsets relative to the initial robot pose.
+        # Target lateral offset relative to the initial robot pose.
         # Positive Y = left, Negative Y = right (ROS convention).
         self.sequence = [
-            (0.10,  "Strafing 10cm LEFT"),
-            (-0.10, "Strafing 20cm RIGHT (Passing center to 10cm right)"),
-            (0.0,   "Returning 10cm LEFT (Back to center)"),
+            (-0.10, "Strafing 10cm RIGHT from center"),
         ]
         self.current_step = 0
 
