@@ -154,16 +154,19 @@ class RGBDPoseRecorder(Node):
             )
             return
 
+        source_frame = depth_msg.header.frame_id or self.camera_frame
         try:
             tf_transform = self.tf_buffer.lookup_transform(
                 self.world_frame, 
-                self.camera_frame, 
+                source_frame,
                 Time.from_msg(timestamp),
                 timeout=Duration(seconds=0.05)
             )
-        except TransformException:
+        except TransformException as exc:
             self.get_logger().warn(
-                "Skipping frame: Failed to look up TF at the image timestamp.",
+                f"Skipping frame: TF lookup {self.world_frame} <- "
+                f"{source_frame} at "
+                f"{timestamp.sec}.{timestamp.nanosec:09d} failed: {exc}",
                 throttle_duration_sec=2.0,
             )
             return
