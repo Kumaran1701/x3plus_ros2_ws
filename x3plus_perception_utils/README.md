@@ -31,16 +31,18 @@ and can save one initial stationary view. After that, it saves a new frame only
 when the camera has translated at least 1 cm from the last saved frame
 (`min_translation_m_between_captures`). This threshold checks translation, not
 rotation. The strafe node's `/recording_enabled` `true` message leaves recording
-enabled, and its `false` message ends recording after at least one capture has
-been accepted. If no capture has been accepted before the `false` message, the
-current recorder does not disable recording. Disk compression and writing run
+enabled, and its `false` message stops accepting new frames and drains pending
+timestamped images before closing the writer queue. Disk compression and writing run
 in a separate process through a queue (200 frames), so slow writes do not block
 the camera callback; frames are dropped with a warning if the queue is full.
 
 **Poses and timestamps.** Each frame's pose is looked up from TF as `odom` to
 `depth_camera_link` at that depth image's header timestamp, not at the latest available TF.
 The timestamp is stored in the NPZ as `timestamp_ns`. Frames with a zero timestamp or without
-TF available at the image timestamp are skipped rather than saved with a latest-transform fallback.
+TF available at the image timestamp are not saved with a latest-transform fallback. The recorder
+queues images and retries timestamped lookups for up to 3 seconds by default
+(`tf_wait_timeout`); images still lacking TF after that are dropped. The pending-image queue is
+bounded (`max_pending_images`, default 100) and drops new frames when full.
 The timestamp aligns the transform lookup with the depth image, but the pose is
 still an estimate: it combines EKF odometry with the Kinect extrinsic from
 `x3plus_bringup`, not an independent ground-truth measurement. Timestamped TF
@@ -80,16 +82,17 @@ installed `x3plus_bringup` package share directory, which is used by the bringup
 
 - **The recorder saves depth only.** The `rgb` entry is a placeholder of zeros, so nothing downstream
   can use colour.
-- **One recording per run.** After at least one capture is accepted, the strafe node's end message
-  closes the disk-writer queue. Restart the recorder for the next capture.
+- **One recording per run.** The strafe node's end message stops new image intake, lets pending
+  timestamped images finish or expire, then closes the disk-writer queue. Restart the recorder for
+  the next capture.
 - **Use a new, empty output folder for each capture.** Files are numbered from `00000.npz`, and the
   recorder does not clear existing files. Stale files in a reused folder can be mistaken for part of
   the current capture. The default output directory is inside the installed package; set
   `output_directory` explicitly if the planner should read the capture from the source tree.
 - **Sampling and pose limitations.** The 1 cm gate is translation-only, so rotation by itself does
   not trigger a capture. Saved poses are timestamp-aligned TF estimates, but can still contain
-  odometry drift or camera-extrinsic error. Frames with missing timestamped TF or a full write queue
-  are skipped/dropped and logged.
+  odometry drift or camera-extrinsic error. Frames that exceed the TF wait or queue capacity, or
+  encounter a full disk-writer queue, are dropped and logged.
 
 ## Requirements
 

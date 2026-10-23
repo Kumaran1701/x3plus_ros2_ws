@@ -4,12 +4,14 @@ from rclpy.node import Node
 import numpy as np
 import os
 import multiprocessing as mp
+import time
+from collections import deque
+from queue import Full
 
 from ament_index_python.packages import get_package_share_directory
 from sensor_msgs.msg import Image, CameraInfo
 from cv_bridge import CvBridge
 from tf2_ros import Buffer, TransformListener, TransformException
-from rclpy.duration import Duration
 from rclpy.time import Time
 from std_msgs.msg import Bool
 
@@ -41,8 +43,8 @@ class RGBDPoseRecorder(Node):
     Record time syncronized RGB-D, camera intrinsics, pose 
     for TSDF-based reconstruction or pointcloud fusion.
 
-    Starts recording only when the node EkfMecanumStrafeNode starts motion (when returns True).
-    Frames are saved only when a minimum distance is driven.
+    Queues frames until TF for their image timestamps is available.
+    Frames are saved only when a minimum translation threshold is met.
     """
 
     def __init__(self):
@@ -57,6 +59,8 @@ class RGBDPoseRecorder(Node):
         self.declare_parameter('max_captures', 0)               
         self.declare_parameter('min_translation_m_between_captures', 0.01) # 1cm
         self.declare_parameter('recording_enabled', True)       
+        self.declare_parameter('tf_wait_timeout', 3.0)
+        self.declare_parameter('max_pending_images', 100)
 
         self.world_frame = self.get_parameter('world_frame').value
         self.camera_frame = self.get_parameter('camera_frame').value
@@ -64,9 +68,18 @@ class RGBDPoseRecorder(Node):
         self.max_captures = self.get_parameter('max_captures').value
         self.min_translation_m = self.get_parameter('min_translation_m_between_captures').value
         self.recording_enabled = self.get_parameter('recording_enabled').value
+        self.tf_wait_timeout = self.get_parameter('tf_wait_timeout').value
+        self.max_pending_images = self.get_parameter('max_pending_images').value
+        if self.tf_wait_timeout <= 0:
+            raise ValueError('tf_wait_timeout must be positive')
+        if self.max_pending_images <= 0:
+            raise ValueError('max_pending_images must be positive')
 
         self.frame_count = 0
         self.bridge = CvBridge()
+        self.pending_images = deque()
+        self.stop_requested = False
+        self.writer_stop_sent = False
 
         os.makedirs(self.output_dir, exist_ok=True)
 
@@ -95,24 +108,22 @@ class RGBDPoseRecorder(Node):
         
         self.depth_image_direct_sub = self.create_subscription(
             Image, '/depth/image_raw', self.depth_callback, 10)
+        self.pending_image_timer = self.create_timer(0.02, self.process_pending_images)
 
         self.get_logger().info("Recorder initialized. Waiting for /depth/camera_info topic...")
 
 
     def recording_enabled_callback(self, msg):
         """
-        Holds depth_callback from processing depth data until EkfMecanumStrafeNode returns True.
-
-        Stops depth_callback from processing anymore when more than zero frames are saved after 
-        EkfMecanumStrafeNode returned True. (To avoid storing redundant frames).
+        Starts accepting frames on True and drains pending frames on False.
         """
 
         new_state = msg.data
-        if not new_state and self.frame_count > 0 and self.recording_enabled:
-            self.get_logger().info("Recording finished by motion node request. Shutting down worker process...")
+        if not new_state and self.recording_enabled:
+            self.get_logger().info("Recording stop requested; draining pending timestamped frames.")
             self.recording_enabled = False
-            self.save_queue.put(None)
-        elif new_state:
+            self.stop_requested = True
+        elif new_state and not self.writer_stop_sent:
             self.recording_enabled = True
 
 
@@ -132,7 +143,7 @@ class RGBDPoseRecorder(Node):
 
     def depth_callback(self, depth_msg):
         """
-        Processes depth images based on translation metrics.
+        Queues depth images until TF for their image timestamps is available.
         """
 
         if not self.recording_enabled:
@@ -154,22 +165,59 @@ class RGBDPoseRecorder(Node):
             )
             return
 
-        source_frame = depth_msg.header.frame_id or self.camera_frame
-        try:
-            tf_transform = self.tf_buffer.lookup_transform(
-                self.world_frame, 
-                source_frame,
-                Time.from_msg(timestamp),
-                timeout=Duration(seconds=0.05)
-            )
-        except TransformException as exc:
+        if len(self.pending_images) >= self.max_pending_images:
             self.get_logger().warn(
-                f"Skipping frame: TF lookup {self.world_frame} <- "
-                f"{source_frame} at "
-                f"{timestamp.sec}.{timestamp.nanosec:09d} failed: {exc}",
+                "Pending image queue is full; dropping incoming frame.",
                 throttle_duration_sec=2.0,
             )
             return
+
+        self.pending_images.append((depth_msg, time.monotonic()))
+
+    def process_pending_images(self):
+        if not self.pending_images:
+            if self.stop_requested:
+                self.stop_writer()
+            return
+
+        if self.max_captures and self.frame_count >= self.max_captures:
+            self.pending_images.clear()
+            if self.stop_requested:
+                self.stop_writer()
+            return
+
+        depth_msg, queued_at = self.pending_images[0]
+        timestamp = depth_msg.header.stamp
+        timestamp_ns = timestamp.sec * 1_000_000_000 + timestamp.nanosec
+        source_frame = depth_msg.header.frame_id or self.camera_frame
+        try:
+            tf_transform = self.tf_buffer.lookup_transform(
+                self.world_frame,
+                source_frame,
+                Time.from_msg(timestamp),
+            )
+        except TransformException as exc:
+            waited = time.monotonic() - queued_at
+            if waited < self.tf_wait_timeout:
+                self.get_logger().warn(
+                    f"Waiting for timestamped TF {self.world_frame} <- {source_frame} "
+                    f"at {timestamp.sec}.{timestamp.nanosec:09d}: {exc}",
+                    throttle_duration_sec=2.0,
+                )
+                return
+
+            self.pending_images.popleft()
+            self.get_logger().warn(
+                f"Dropping image after waiting {waited:.2f}s for TF "
+                f"{self.world_frame} <- {source_frame} at "
+                f"{timestamp.sec}.{timestamp.nanosec:09d}: {exc}",
+            )
+            return
+
+        self.pending_images.popleft()
+        self.save_image_with_transform(depth_msg, timestamp_ns, tf_transform)
+
+    def save_image_with_transform(self, depth_msg, timestamp_ns, tf_transform):
 
         t = tf_transform.transform.translation
         q = tf_transform.transform.rotation
@@ -211,6 +259,20 @@ class RGBDPoseRecorder(Node):
             f"Saved capture {frame_idx} at image timestamp {timestamp_ns} ns "
             f"and translation offset Y={t.y:.3f}m"
         )
+
+    def stop_writer(self):
+        if self.writer_stop_sent:
+            return
+        try:
+            self.save_queue.put_nowait(None)
+        except Full:
+            self.get_logger().warn(
+                "Waiting for disk writer queue to drain before stopping.",
+                throttle_duration_sec=2.0,
+            )
+            return
+        self.writer_stop_sent = True
+        self.get_logger().info("Disk writer queue closed after pending frames were processed.")
 
 
     def quaternion_to_matrix(self, x, y, z, w):
