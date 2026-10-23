@@ -68,7 +68,7 @@ class x3plusDriver(Node):
         self.get_logger().info("Driver node started")
 
         # Default arm joint positions (degrees)
-        self.joints = [90, 180, 0, 0, 90, 30]
+        self.joints = [90, 180, 0, 0, 90, 175]
         self.car.set_uart_servo_angle_array(self.joints, 1000)
 
         # Timer for periodic sensor polling and joint state publishing.
