@@ -30,7 +30,8 @@ Each `NNNNN.npz` is one frame:
 and can save one initial stationary view. After that, it saves a new frame only
 when the camera has translated at least 1 cm from the last saved frame
 (`min_translation_m_between_captures`). This threshold checks translation, not
-rotation. The strafe node's `/recording_enabled` `true` message leaves recording
+rotation. “Queued capture” in the log means the NPZ is waiting for the disk worker;
+“Wrote capture file” confirms that the file was written. The strafe node's `/recording_enabled` `true` message leaves recording
 enabled, and its `false` message stops accepting new frames and drains pending
 timestamped images before closing the writer queue. Disk compression and writing run
 in a separate process through a queue (200 frames), so slow writes do not block
@@ -87,7 +88,9 @@ installed `x3plus_bringup` package share directory, which is used by the bringup
   the next capture.
 - **Use a new, empty output folder for each capture.** Files are numbered from `00000.npz`, and the
   recorder does not clear existing files. Stale files in a reused folder can be mistaken for part of
-  the current capture. The default output directory is inside the installed package; set
+  the current capture. The default output directory is `rgbd_pose_dataset/latest` inside the
+  installed package share directory (find it with
+  `ros2 pkg prefix --share x3plus_perception_utils`). This is not the source-tree folder. Set
   `output_directory` explicitly if the planner should read the capture from the source tree.
 - **Sampling and pose limitations.** The 1 cm gate is translation-only, so rotation by itself does
   not trigger a capture. Saved poses are timestamp-aligned TF estimates, but can still contain

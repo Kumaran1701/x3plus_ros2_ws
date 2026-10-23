@@ -6,7 +6,7 @@ import os
 import multiprocessing as mp
 import time
 from collections import deque
-from queue import Full
+from queue import Empty, Full
 
 from ament_index_python.packages import get_package_share_directory
 from sensor_msgs.msg import Image, CameraInfo
@@ -16,7 +16,7 @@ from rclpy.time import Time
 from std_msgs.msg import Bool
 
 
-def disk_writer_worker(queue):
+def disk_writer_worker(queue, status_queue):
     """Runs in a separate process to write data to disk."""
     while True:
         item = queue.get()
@@ -25,17 +25,23 @@ def disk_writer_worker(queue):
         (frame_idx, cv_depth, cv_rgb, pose_matrix, timestamp_ns,
          depth_intrinsics, depth_distortion,
          rgb_intrinsics, rgb_distortion, output_dir) = item
-        np.savez_compressed(
-            os.path.join(output_dir, f"{frame_idx}.npz"),
-            depth=cv_depth,
-            rgb=cv_rgb,
-            pose=pose_matrix,
-            timestamp_ns=np.int64(timestamp_ns),
-            depth_intrinsics=depth_intrinsics,
-            depth_distortion=depth_distortion,
-            rgb_intrinsics=rgb_intrinsics,
-            rgb_distortion=rgb_distortion
-        )
+        output_path = os.path.join(output_dir, f"{frame_idx}.npz")
+        try:
+            np.savez_compressed(
+                output_path,
+                depth=cv_depth,
+                rgb=cv_rgb,
+                pose=pose_matrix,
+                timestamp_ns=np.int64(timestamp_ns),
+                depth_intrinsics=depth_intrinsics,
+                depth_distortion=depth_distortion,
+                rgb_intrinsics=rgb_intrinsics,
+                rgb_distortion=rgb_distortion
+            )
+        except Exception as exc:
+            status_queue.put(("error", output_path, repr(exc)))
+        else:
+            status_queue.put(("saved", output_path, ""))
 
 
 class RGBDPoseRecorder(Node):
@@ -85,8 +91,15 @@ class RGBDPoseRecorder(Node):
 
         # Multiprocessing Setup
         self.save_queue = mp.Queue(maxsize=200)
-        self.worker = mp.Process(target=disk_writer_worker, args=(self.save_queue,), daemon=True)
+        self.writer_status_queue = mp.Queue()
+        self.worker = mp.Process(
+            target=disk_writer_worker,
+            args=(self.save_queue, self.writer_status_queue),
+        )
         self.worker.start()
+        self.writer_saved_count = 0
+        self.writer_error_count = 0
+        self.writer_finished_logged = False
 
         self.last_saved_position = None  
 
@@ -111,6 +124,7 @@ class RGBDPoseRecorder(Node):
         self.pending_image_timer = self.create_timer(0.02, self.process_pending_images)
 
         self.get_logger().info("Recorder initialized. Waiting for /depth/camera_info topic...")
+        self.get_logger().info(f"NPZ output directory: {os.path.abspath(self.output_dir)}")
 
 
     def recording_enabled_callback(self, msg):
@@ -175,6 +189,8 @@ class RGBDPoseRecorder(Node):
         self.pending_images.append((depth_msg, time.monotonic()))
 
     def process_pending_images(self):
+        self.report_writer_status()
+
         if not self.pending_images:
             if self.stop_requested:
                 self.stop_writer()
@@ -256,7 +272,7 @@ class RGBDPoseRecorder(Node):
         self.last_saved_position = current_position.copy()
         self.frame_count += 1
         self.get_logger().info(
-            f"Saved capture {frame_idx} at image timestamp {timestamp_ns} ns "
+            f"Queued capture {frame_idx} for writing at image timestamp {timestamp_ns} ns "
             f"and translation offset Y={t.y:.3f}m"
         )
 
@@ -272,7 +288,57 @@ class RGBDPoseRecorder(Node):
             )
             return
         self.writer_stop_sent = True
-        self.get_logger().info("Disk writer queue closed after pending frames were processed.")
+        self.get_logger().info("Sent disk writer stop signal; waiting for queued files to finish writing.")
+
+    def report_writer_status(self):
+        while True:
+            try:
+                status, output_path, detail = self.writer_status_queue.get_nowait()
+            except Empty:
+                break
+
+            if status == "saved":
+                self.writer_saved_count += 1
+                self.get_logger().info(f"Wrote capture file: {output_path}")
+            else:
+                self.writer_error_count += 1
+                self.get_logger().error(f"Failed to write capture {output_path}: {detail}")
+
+        if self.writer_stop_sent and not self.worker.is_alive() and not self.writer_finished_logged:
+            self.report_remaining_writer_status()
+            self.writer_finished_logged = True
+            self.get_logger().info(
+                f"Disk writer finished: {self.writer_saved_count} file(s) written, "
+                f"{self.writer_error_count} write error(s)."
+            )
+
+    def report_remaining_writer_status(self):
+        while True:
+            try:
+                status, output_path, detail = self.writer_status_queue.get_nowait()
+            except Empty:
+                break
+
+            if status == "saved":
+                self.writer_saved_count += 1
+                self.get_logger().info(f"Wrote capture file: {output_path}")
+            else:
+                self.writer_error_count += 1
+                self.get_logger().error(f"Failed to write capture {output_path}: {detail}")
+
+    def destroy_node(self):
+        if self.worker.is_alive():
+            if not self.writer_stop_sent:
+                self.save_queue.put(None)
+                self.writer_stop_sent = True
+            self.worker.join()
+        self.report_remaining_writer_status()
+        self.writer_finished_logged = True
+        self.get_logger().info(
+            f"Disk writer stopped: {self.writer_saved_count} file(s) written, "
+            f"{self.writer_error_count} write error(s)."
+        )
+        super().destroy_node()
 
 
     def quaternion_to_matrix(self, x, y, z, w):
