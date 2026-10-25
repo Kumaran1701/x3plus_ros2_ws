@@ -17,6 +17,16 @@ def drake_rad_to_servo_deg(q_rad):
     return np.degrees(q_rad) + 90.0
 
 
+SERVO_MAX_ANGLES_DEG = (180, 180, 180, 180, 270, 180)
+
+
+def valid_servo_angles(angles, joint_count):
+    return len(angles) >= joint_count and all(
+        np.isfinite(angles[joint]) and 0 <= angles[joint] <= SERVO_MAX_ANGLES_DEG[joint]
+        for joint in range(joint_count)
+    )
+
+
 # ------------------------------- Arm Trajectory Controller Node -----------------------------------
 
 class ArmTrajectoryController(Node):
@@ -54,6 +64,10 @@ class ArmTrajectoryController(Node):
         rclpy.spin_until_future_complete(self, future)
 
         self.current_angles = list(future.result().angles)
+        if not valid_servo_angles(self.current_angles, 6):
+            raise RuntimeError(
+                "CurrentAngle returned invalid servo angles; cannot safely start trajectory."
+            )
         self.get_logger().info(f'Current angles: {self.current_angles}')
 
         # Load trajectory data
@@ -179,11 +193,11 @@ class ArmTrajectoryController(Node):
             self.get_logger().error(f"CurrentAngle feedback request failed: {exc}")
         else:
             measured_deg = np.asarray(response.angles, dtype=float)
-            if measured_deg.size < 5 or not np.all(np.isfinite(measured_deg[:5])):
+            if not valid_servo_angles(measured_deg, 5):
                 self.feedback_failures += 1
                 self.get_logger().error(
                     "CurrentAngle returned invalid arm positions; expected at least 5 "
-                    "finite angles"
+                    "finite angles within servo limits"
                 )
             else:
                 desired_deg = drake_rad_to_servo_deg(desired_q)

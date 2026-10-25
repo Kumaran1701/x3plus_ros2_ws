@@ -1,3 +1,5 @@
+"""IRIS region growth and constrained inverse-kinematics helpers."""
+
 import time
 import numpy as np
 

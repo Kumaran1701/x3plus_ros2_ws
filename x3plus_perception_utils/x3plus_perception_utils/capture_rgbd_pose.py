@@ -14,6 +14,7 @@ from cv_bridge import CvBridge
 from tf2_ros import Buffer, TransformListener, TransformException
 from rclpy.time import Time
 from std_msgs.msg import Bool
+from message_filters import ApproximateTimeSynchronizer, Subscriber
 
 
 def disk_writer_worker(queue, status_queue):
@@ -46,7 +47,7 @@ def disk_writer_worker(queue, status_queue):
 
 class RGBDPoseRecorder(Node):
     """
-    Record time syncronized RGB-D, camera intrinsics, pose 
+    Record time-synchronized RGB-D, camera intrinsics, pose
     for TSDF-based reconstruction or pointcloud fusion.
 
     Queues frames until TF for their image timestamps is available.
@@ -119,8 +120,14 @@ class RGBDPoseRecorder(Node):
         self.camera_info_direct_sub = self.create_subscription(
             CameraInfo, '/depth/camera_info', self.depth_info_callback, 10)
         
-        self.depth_image_direct_sub = self.create_subscription(
-            Image, '/depth/image_raw', self.depth_callback, 10)
+        self.depth_image_sub = Subscriber(self, Image, '/depth/image_raw')
+        self.rgb_image_sub = Subscriber(self, Image, '/rgb/image_raw')
+        self.image_sync = ApproximateTimeSynchronizer(
+            [self.depth_image_sub, self.rgb_image_sub],
+            queue_size=20,
+            slop=0.1,
+        )
+        self.image_sync.registerCallback(self.depth_rgb_callback)
         self.pending_image_timer = self.create_timer(0.02, self.process_pending_images)
 
         self.get_logger().info("Recorder initialized. Waiting for /depth/camera_info topic...")
@@ -155,9 +162,9 @@ class RGBDPoseRecorder(Node):
             self.depth_info_received = True
             self.get_logger().info(f"Successfully connected to camera info! Dimensions: {msg.width}x{msg.height}")
 
-    def depth_callback(self, depth_msg):
+    def depth_rgb_callback(self, depth_msg, rgb_msg):
         """
-        Queues depth images until TF for their image timestamps is available.
+        Queues synchronized RGB-D images until TF is available for their timestamp.
         """
 
         if not self.recording_enabled:
@@ -186,7 +193,7 @@ class RGBDPoseRecorder(Node):
             )
             return
 
-        self.pending_images.append((depth_msg, time.monotonic()))
+        self.pending_images.append((depth_msg, rgb_msg, time.monotonic()))
 
     def process_pending_images(self):
         self.report_writer_status()
@@ -202,7 +209,7 @@ class RGBDPoseRecorder(Node):
                 self.stop_writer()
             return
 
-        depth_msg, queued_at = self.pending_images[0]
+        depth_msg, rgb_msg, queued_at = self.pending_images[0]
         timestamp = depth_msg.header.stamp
         timestamp_ns = timestamp.sec * 1_000_000_000 + timestamp.nanosec
         source_frame = depth_msg.header.frame_id or self.camera_frame
@@ -231,9 +238,9 @@ class RGBDPoseRecorder(Node):
             return
 
         self.pending_images.popleft()
-        self.save_image_with_transform(depth_msg, timestamp_ns, tf_transform)
+        self.save_image_with_transform(depth_msg, rgb_msg, timestamp_ns, tf_transform)
 
-    def save_image_with_transform(self, depth_msg, timestamp_ns, tf_transform):
+    def save_image_with_transform(self, depth_msg, rgb_msg, timestamp_ns, tf_transform):
 
         t = tf_transform.transform.translation
         q = tf_transform.transform.rotation
@@ -252,7 +259,7 @@ class RGBDPoseRecorder(Node):
 
         try:
             cv_depth = self.bridge.imgmsg_to_cv2(depth_msg, desired_encoding="16UC1")
-            cv_rgb = np.zeros((depth_msg.height, depth_msg.width, 3), dtype=np.uint8)
+            cv_rgb = self.bridge.imgmsg_to_cv2(rgb_msg, desired_encoding="rgb8")
         except Exception as e:
             self.get_logger().error(f"CvBridge Conversion failed: {str(e)}")
             return

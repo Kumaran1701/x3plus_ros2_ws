@@ -1,42 +1,8 @@
 import time
 import numpy as np
-import matplotlib.pyplot as plt
 import open3d as o3d
-
-
-# ----------------------------------- RANSAC PLANE SEGMENTATION ---------------------------------------
-
-def segment_planes(point_cloud, distance_threshold=0.005, ransac_n=3, num_iterations=1000, min_points=1000):
-    """
-    Iteratively segment dominantplanes from the point cloud using RANSAC. 
-
-    Returns: 
-        significant_planes: a list of plane equation and its corresponding points
-        remaining_cloud: the outliers after removing all significant planes.
-    """
-    significant_planes = []
-    remaining_cloud = point_cloud
-    plane_index = 1
-
-    while True:
-        plane_model, inliers = remaining_cloud.segment_plane(distance_threshold=distance_threshold,
-                                                             ransac_n=ransac_n,
-                                                             num_iterations=num_iterations)
-        if len(inliers) < min_points:
-            break
-
-        print(f"Plane {plane_index} equation {plane_model}")
-        plane_index += 1
-
-        inlier_point_cloud = remaining_cloud.select_by_index(inliers)
-        inlier_point_cloud.paint_uniform_color(np.random.rand(3))
-
-        significant_planes.append((inlier_point_cloud, plane_model))
-
-        remaining_cloud = remaining_cloud.select_by_index(inliers, invert=True)
-
-    return significant_planes, remaining_cloud
-
+import matplotlib.pyplot as plt
+from x3plus_drake_planner.geometry_utils.plane_segmentation import segment_planes
 
 # -------------------------------- DBSCAN ON SEGMENTED PLANES (RED) -----------------------------------
 
@@ -333,7 +299,11 @@ def prepare_complete_collision_geometry(point_cloud, camera_normal=np.array([1.0
     
     # --- RANSAC plane segmentation ------------------
 
-    significant_planes, outliers = segment_planes(point_cloud)
+    significant_planes, outliers = segment_planes(point_cloud, 
+                                                  distance_threshold=0.005,
+                                                  ransac_n=3,
+                                                  num_iterations=1000,
+                                                  min_points=1000)
 
     # --- Multi-stage DBSCAN -------------------------
 
@@ -369,8 +339,13 @@ def prepare_plane_only_geometry(point_cloud, camera_normal=np.array([1.0, 0.0, 0
     """
         Similar to complete_hulls_to_obstacle_vertices, but only for planes.
     """
-    significant_planes, _ = segment_planes(point_cloud)
-    all_plane_sub_hulls, _, _ = cluster_planar_patches(significant_planes, camera_normal=camera_normal)
+    significant_planes, _ = segment_planes(point_cloud=point_cloud, 
+                                           distance_threshold=0.005,
+                                           ransac_n=3, 
+                                           num_iterations=1000, 
+                                           min_points=1000)
+    
+    all_plane_sub_hulls, _ = cluster_planar_patches(significant_planes, camera_normal=camera_normal)
 
     obstacle_verts_list = plane_hulls_to_obstacle_vertices(all_plane_sub_hulls)
 

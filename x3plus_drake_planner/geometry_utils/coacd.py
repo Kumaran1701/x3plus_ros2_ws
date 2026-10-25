@@ -1,3 +1,5 @@
+"""TSDF-based convex decomposition and CoACD collision geometry helpers."""
+
 import multiprocessing as mp
 from pathlib import Path
 import trimesh

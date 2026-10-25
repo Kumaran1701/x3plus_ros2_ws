@@ -1,6 +1,9 @@
 import numpy as np
 
-from iris_helper import grow_iris_region, solve_ik_in_region
+from x3plus_drake_planner.planning_utils.iris_helper import (
+    grow_iris_region,
+    solve_ik_in_region,
+)
 
 
 # ------------------------------------------- HELPERS ----------------------------------------------

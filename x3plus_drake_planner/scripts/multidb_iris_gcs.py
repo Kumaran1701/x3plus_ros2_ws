@@ -1,6 +1,6 @@
 import time
 import numpy as np
-import cv2
+
 import open3d as o3d
 from pathlib import Path
 
@@ -15,70 +15,27 @@ from pydrake.all import (
 )
 
 from pydrake.planning import GcsTrajectoryOptimization, IrisZoOptions
-
 from manipulation.meshcat_utils import PublishPositionTrajectory
 
-from tsdf_coacd import prepare_tsdf_coacd_collision_geometry
+from x3plus_drake_planner.geometry_utils.multidb import (
+    prepare_complete_collision_geometry,
+)
+from x3plus_drake_planner.pointcloud_utils.preprocess import load_point_cloud
 
-from drake_utilis import (
+from x3plus_drake_planner.planning_utils.drake_utils import (
     build_x3plus,
     visualize_target_points,
     create_collision_checker,
+    export_trajectory
 )
 
-from iris_helper import grow_region_chain, animate_iris
-
-
-# ---------------------------- LOAD NPZ AND CREATE WORLD-FRAME POINTCLOUD -----------------------------
-
-def load_point_cloud(npz_path, max_depth=0.6, voxel_size=0.005):
-    """
-    Load NPZ file from rgbd_pose_dataset and generate pointcloud in world frame.
-    
-    Returns:
-        pcd: downsampled pointcloud.
-    """
-
-    data = np.load(npz_path)
-
-    depth = data["depth"].astype(np.float32) / 1000.0 # mm to m
-    rgb = data["rgb"]
-    pose = data["pose"]
-
-    fx, fy, cx, cy, _, _ = data["depth_intrinsics"]
-
-    H, W = depth.shape # depth cam resolution
-
-    rgb_resized = cv2.resize(rgb, (W, H)) # resize rgb cam to depth cam resolution 
-    rgb_flat = rgb_resized.reshape(-1, 3)
-
-    # Generate pointcloud in depth cam frame
-    u, v = np.meshgrid(np.arange(W), np.arange(H)) 
-    Z = depth
-    X = (u - cx) * Z / fx
-    Y = (v - cy) * Z / fy
-    points_cam = np.stack((X, Y, Z), axis=-1).reshape(-1, 3)
-
-    valid = Z.reshape(-1) > 0
-    close = Z.reshape(-1) < 0.6 # keep points within 0.6 m
-    valid = valid & close
-
-    points_cam = points_cam[valid]
-    colors = rgb_flat[valid] / 255.0
-
-    # Transform to world frame
-    ones = np.ones((points_cam.shape[0], 1)) 
-    points_h = np.hstack((points_cam, ones))
-    points_world = (pose @ points_h.T).T[:, :3]
-
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(points_world)
-    pcd.colors = o3d.utility.Vector3dVector(colors)
-    pcd = pcd.voxel_down_sample(voxel_size=0.005)
-
-    print(f"\nLoaded downsampled pointcloud with {len(pcd.points)} points")
-
-    return pcd
+from x3plus_drake_planner.planning_utils.iris_helper import (
+    grow_region_chain,
+    animate_iris,
+)
+from x3plus_drake_planner.planning_utils.iris_informed import (
+    grow_region_chain_informed,
+)
 
 
 #  ---------------------- COMPUTE PRE-TASK TARGET POINT FROM THE SELECTED PLANE -----------------------
@@ -101,7 +58,7 @@ def compute_target_point(significant_planes, plant, plant_context, q0):
     normal /= np.linalg.norm(normal)
 
     gripper_frame = plant.GetFrameByName("grip_joint_parent")
-    plant.SetPosition(plant_context, q0)
+    plant.SetPositions(plant_context, q0)
 
     X_WG_q0 = plant.CalcRelativeTransform(plant_context, plant.world_frame(),
                                           plant.GetFrameByName("grip_joint_parent"))
@@ -183,27 +140,13 @@ def solve_gcs_trajectory(region_chain, q_chain, q_goal, q0, plant, robot_diagram
     return traj
 
 
-# -------------------------- EXPORT GCS TRAJECTORY TO A FIXED-RATE NPZ FILE ---------------------------
-
-def export_trajectory(traj, filename="trajectory_export.npz", dt=0.02):
-    """
-    Sample and export a fixed rate Drake trajectory to a NPZ file.
-    """
-    
-    times = np.arange(0.0, traj.end_time(), dt)
-    q_samples = np.array([traj.value(t).ravel() for t in times])
-
-    np.savez(filename, times=times, q=q_samples)
-    print(f"Saved trajectory to {filename}")
-
-
 # ----------------------------------------------- MAIN ------------------------------------------------
 
 def main():
 
-    # ---------- Part 1: Load perception data -------------------------------------
+    # ---------- Part 1: Load perception data -----------------------------------------------
 
-    SRC_DIR = Path(__file__).resolve().parents[1]   
+    SRC_DIR = Path(__file__).resolve().parents[2]
     PERCEPTION_DIR = SRC_DIR / "x3plus_perception_utils"
     
     captures_dir = (
@@ -213,15 +156,17 @@ def main():
         / "chrissek_tsdf"
     )
 
-    # ---------- Part 2: Generate collision geometry ------------------------------
+    npz_path = captures_dir / "00010.npz"
+    pointcloud = load_point_cloud(npz_path, max_depth=0.6, voxel_size=0.005)
+
+    # ---------- Part 2: Generate collision geometry ----------------------------------------
 
     print("\n---------- Generating collision geometry ----------")
 
-    obstacle_verts_list = prepare_tsdf_coacd_collision_geometry(captures_dir=captures_dir)
-
+    obstacle_verts_list, significant_planes = prepare_complete_collision_geometry(pointcloud)
     print(f"\nGenerated {len(obstacle_verts_list)} collision obstacles")
 
-    # ---------- Part 3: Build Drake X3Plus scene ---------------------------------
+    # ---------- Part 3: Build Drake X3Plus scene -------------------------------------------
 
     meshcat = StartMeshcat()
 
@@ -229,7 +174,7 @@ def main():
     context = robot_diagram.CreateDefaultContext()
     plant_context = plant.GetMyMutableContextFromRoot(context)
 
-    # ---------- Part 4: Set initial arm configuration ----------------------------
+    # ---------- Part 4: Set initial arm configuration --------------------------------------
 
     arm_joints = [
         plant.GetJointByName("arm_joint1"),
@@ -245,8 +190,8 @@ def main():
     robot_diagram.ForcedPublish(context)
 
     print("Inital Arm Configuration (q0): ", q0)
-'''
-    # ---------- Part 5: Select and visualize target point ---------------------------------------------
+
+    # ---------- Part 5: Select and visualize target point -----------------------------------
 
     centroid, target_offset_point = compute_target_point(significant_planes,
                                                          plant,
@@ -255,13 +200,12 @@ def main():
     
     visualize_target_points(meshcat, centroid, target_offset_point)
 
-    # ---------- Part 6: Intialize Drake collision checker --------------------------------------------- 
+    # ---------- Part 6: Intialize Drake collision checker ------------------------------------
 
     checker = create_collision_checker(robot_diagram, plant)
-
     print("q0 collision-free check: ", checker.CheckConfigCollisionFree(q0))
 
-    # ---------- Part 7: Set up IRIS parameters ---------------------------------------------------------
+    # ---------- Part 7: Set up IRIS parameters -----------------------------------------------
 
     world_frame = plant.world_frame()
     gripper_frame = plant.GetFrameByName("grip_joint_parent")
@@ -284,13 +228,14 @@ def main():
     iris_zo_options.sampled_iris_options.epsilon = 0.01
     iris_zo_options.sampled_iris_options.delta = 0.01
 
-    # ---------- Part 8: Sequential grow IRIS toward 'target_offset_point' ------------------------------
+    # ---------- Part 8: Sequential grow IRIS toward 'target_offset_point' --------------------
 
+    target_offset_point = [0.67860311, 0.05494937, 0.38887407]
     print(f"\nSequentially growing IRIS towards {target_offset_point}")
 
     t0 = time.perf_counter()
 
-    region_chain, q_chain, q_goal = grow_region_chain(checker,
+    region_chain, q_chain, q_goal = grow_region_chain_informed(checker,
                                                       plant,
                                                       plant_context,
                                                       gripper_frame,
@@ -300,12 +245,12 @@ def main():
                                                       domain,
                                                       iris_zo_options)
 
-    print(f"IRIS region generation took: {time.perf_counter - t0:.4f} s")
+    print(f"IRIS region generation took: {time.perf_counter() - t0:.4f} s")
     print(f"Generated {len(region_chain)} IRIS regions.")
     print("q_goal: ", q_goal)
     print("q_goal collision-free check: ", checker.CheckConfigCollisionFree(q_goal))
 
-    # ---------- part 9: GCS trajectory optimization ----------------------------------------------------
+    # ---------- part 9: GCS trajectory optimization ------------------------------------------
 
     traj = solve_gcs_trajectory(region_chain,
                                 q_chain,
@@ -317,12 +262,12 @@ def main():
 
     print("Trajectory execution time: ", traj.end_time())
 
-    # ---------- Part 10: Sample and export GCS trajectory ----------------------------------------------
+    # ---------- Part 10: Sample and export GCS trajectory ------------------------------------
 
-    export_trajectory(traj, filename="trajectory_export.npz", dt=0.02)
+    export_trajectory(traj, dt=0.02)
 
     print("\nSequence completed.")
-'''
+
 
 if __name__ == "__main__":
     main()

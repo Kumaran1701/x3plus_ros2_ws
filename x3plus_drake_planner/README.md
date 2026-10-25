@@ -23,10 +23,16 @@ flowchart LR
 
 ## Stages and why they work this way
 
-**Collision geometry from the point cloud (`collision_utilis.py`).** Using the `rgbd_pose_dataset` the 
+**Collision geometry from the point cloud (`geometry_utils/`).** Using the `rgbd_pose_dataset` the 
 depth image is projected into the world frame using the stored intrinsics and camera pose. For any given capture, distances beyond 0.6 m are considered unreachable for the arm and not included in the collision geometry reconstruction. The remaining points are voxel-downsampled. Iterative RANSAC extracts the largest planes, and 
-DBSCAN splits each plane into planar patches to account for spatial seperation between coplanar points. The RANSAC
+DBSCAN splits each plane into planar patches to account for spatial separation between coplanar points. The RANSAC
 outliers and the noise from plane clustering go thorugh two more DBSCAN passes with different clustering parameters   (dense and sparse). Each cluster becomes a convex hull. 
+
+As an alternative, [`geometry_utils/plane_rasterization.py`](./geometry_utils/plane_rasterization.py) projects each RANSAC plane into a 2D raster, labels connected regions, and recursively splits sufficiently non-convex regions before building hulls. It also clusters supplied RANSAC outliers with primary DBSCAN. Call `process_complete_workspace_rasterization(significant_planes, outliers)` with the outputs of `geometry_utils.plane_segmentation.segment_planes`; it returns `(hulls, noise)`, where `hulls` contains plane and outlier meshes and `noise` is a separate Open3D point cloud of DBSCAN noise.
+
+[`planning_utils/rrt_connect_planner.py`](./planning_utils/rrt_connect_planner.py) provides a separate joint-space RRT-Connect planner. Given an initialized Drake plant, context, frames, collision checker, and target, use `find_goal_config(...)` to find a collision-free IK goal, then `plan_rrt_connect(...)` to get `(trajectory, info, shortcut_path, raw_path)`. It does not modify the IRIS/GCS planning flow.
+
+[`scripts/raster_rrt_connect.py`](./scripts/raster_rrt_connect.py) is an executable pipeline: it loads configured RGB-D capture(s), uses RANSAC plus rasterized plane hulls and primary DBSCAN outlier hulls for collision geometry, finds an IK goal for its manually defined `target_offset_point`, and plans with RRT-Connect. Remaining DBSCAN noise is reported separately and is not currently added as collision geometry. The output is saved as `trajectory_raster_rrt_connect.npz`.
 
 Convex hulls are used because Drake checks collision against convex shapes quickly and when the clusters are converted to convex hulls, they can err on the side of caution. Meaning, highly concave shapes can be filled in. 
 The alternative, TSDF fusion of multiple captures and convex decomposition using CoACD represents concave shapes more accurately. CoACD works by decomposing concave shape into convex segments by trading off accuracy with time vs near-instant for the DBSCAN pipleine. Since the armm only has to avoid the environment to reach the pre-task pose, the DBSCAN is the active pipeline currently.
@@ -46,15 +52,15 @@ All distances are in metres. Every value follows from the 5 mm voxel size.
 
 A plane counts as edge-on when `|normal · [1, 0, 0]| < 0.2`, which assumes the camera looks along the world x-axis.
 
-**Drake scene (`drake_utilis.py`).** The gripper is welded to `arm_link5`, and each convex obstacle is
+**Drake scene (`planning_utils/drake_utils.py`).** The gripper is welded to `arm_link5`, and each convex obstacle is
 registered as collision and visual geometry. The robot can be welded into the scene at different pre-set poses (`[0.40, 0.10, 0.0]` m in the current script) and thereby region growth can be tested from different positions to the same target. Drake's `SceneGraphCollisionChecker` provides the collision queries. Self-collision is partially filtered adjacent link pairs and several other arm and base pairs are excluded, and the remaining pairs are still checked. Virtual actuators are added only to simulate Joint Space Control (JCS) but since the hardware is not torque controlled it is not used for planning.
 
-**Target (`MultiDB.py`).** A target point is currently hand-picked rahter than from the computed plane, because plane's index diffes between run and captures. A perception based target (hole or object) selection will replace it. The target is 3D position in world space and not the robot's target pose. Rightnow only the gripper's position is constrained and the `grip_joint_parent` is the point on the gripper that is controlled. not the fingertips.
+**Target (`scripts/multidb_iris_gcs.py`).** A target point is currently hand-picked rather than from the computed plane, because plane's index differs between runs and captures. A perception-based target (hole or object) selection will replace it. The target is a 3D position in world space and not the robot's target pose. Right now only the gripper's position is constrained and the `grip_joint_parent` is the point on the gripper that is controlled, not the fingertips.
 
-**Regions in a five-dimensional configuration space (`iris_informed.py`, `iris_helper.py`).**Only the
+**Regions in a five-dimensional configuration space (`planning_utils/iris_informed.py`, `planning_utils/iris_helper.py`).** Only the
 five arm joints are free (see [`x3plus_description`](../x3plus_description/README.md) for why). Since the robot only has 5-DOF, and considering the manipualtion task to be infront of the robot, the first joint is limited to ±35° so that regions grow forward toward the target area instead of into irrelevant space. This will be upgraded later based on where the target is and then limiting the base joint accordingly. Regions are grown with IrisZo, which uses collision-checker queries and gives a probabilistic guarantee, controlled by `epsilon = 0.01` and `delta = 0.01`, unlike IrisNp with 100% guarantee.
 
-### The informed region chain (`iris_informed.py`)
+### The informed region chain (`planning_utils/iris_informed.py`)
 
 The aim is to connect the home configuration, q0, to the goal configuration,
 q_goal, with as few regions as possible. Instead of sampling the C-space
@@ -106,7 +112,7 @@ Limits of the strategy: every hop must bring the gripper at least 1 cm closer to
 never backtracks, so a route that first has to move away from the target to get around an obstacle is not
 found. The IK constrains position only, not orientation.
 
-### Trajectory (`MultiDB.py`)
+### Trajectory (`scripts/multidb_iris_gcs.py`)
 
 GCS is used to build the trajectory from q0 to q_goal through the regions. Each region becomes a quadratic Bézier region with start, q0 and goal, q_goal as fixed points. The order of the Bézier curve determines the smoothness in the trajectory. GCS is used because it greatly complements the IRIS regions and provides direct control over the costs (path energy, time, velocity limits apply) so the shape, speed and timing of the trajecotry are optimized. Edges are added between every region in the chain so that GCS can choose an optimial exit and entry between regions. The trajectory can be visualized in meshcat and a `0.02 s` sampled version of the same with joint positions `q` in radians is exported into `trajectory_export.npz`. `x3plus_motion_planner` publishes this directly to the hardware.
 
@@ -114,28 +120,42 @@ GCS is used to build the trajectory from q0 to q_goal through the regions. Each 
 
 | File | Role |
 | --- | --- |
-| `MultiDB.py` | Active pipeline (multi-stage DBSCAN): one capture in, trajectory out |
-| `collision_utilis.py` | RANSAC, staged DBSCAN and hulls to Drake obstacle vertices |
-| `drake_utilis.py` | Drake scene, collision checker, Meshcat target markers |
-| `iris_informed.py` | Task-space-guided region chain (IK, bisection, spheroid sampling) |
-| `iris_helper.py` | IrisZo region growth with the seed-containment check, and region-constrained IK (the two primitives `iris_informed.py` builds on) |
-| `tsdf_coacd.py` | TSDF fusion of all captures, segmentation, CoACD convex parts |
-| `TSDF_CoACD.py` | Entry point for the TSDF/CoACD alternative; its planning section is commented out, so it currently builds the scene only |
+| `scripts/raster_rrt_connect.py` | Rasterized plane geometry and RRT-Connect planning |
+| `scripts/multidb_iris_gcs.py` | DBSCAN geometry, IRIS region chain, and GCS trajectory |
+| `scripts/tsdf_coacd.py` | Entry point for the TSDF/CoACD alternative |
+| `pointcloud_utils/preprocess.py` | RGB-D point-cloud loading, downsampling, and capture fusion |
+| `geometry_utils/plane_segmentation.py` | RANSAC plane extraction |
+| `geometry_utils/plane_rasterization.py` | Raster components and convex plane-patch generation |
+| `geometry_utils/multidb.py` | Multi-stage DBSCAN and convex collision geometry |
+| `geometry_utils/coacd.py` | TSDF fusion, segmentation, and CoACD convex parts |
+| `planning_utils/drake_utils.py` | Drake scene, collision checker, and trajectory export |
+| `planning_utils/rrt_connect_planner.py` | Joint-space RRT-Connect planner |
+| `planning_utils/iris_informed.py` | Task-space-guided IRIS region chain |
+| `planning_utils/iris_helper.py` | IRIS region growth and region-constrained IK helpers |
 
 ## Inputs and running
 
 ```bash
-cd src/x3plus_drake_planner
-python MultiDB.py
+cd src
+python -m x3plus_drake_planner.scripts.raster_rrt_connect
 ```
 
-`MultiDB.py` reads one capture, `x3plus_perception_utils/x3plus_perception_utils/rgbd_pose_dataset/chrissek_tsdf/00010.npz`,
-containing `depth` (millimetres), `rgb`, `pose` and `depth_intrinsics` (`fx, fy, cx, cy, ...`). It
-starts a Meshcat server and writes `trajectory_export.npz` to `x3plus_motion_planner/trajectory`.
-Paths and planning
-values, including the start configuration, are set in the script, not on the command line. The scripts
-find the sibling packages by relative path, so keep the workspace layout. This directory has no
-`package.xml`.
+Run the alternatives as modules from `src` as well:
+
+```bash
+python -m x3plus_drake_planner.scripts.multidb_iris_gcs
+python -m x3plus_drake_planner.scripts.tsdf_coacd
+```
+
+Module execution ensures the package root is on Python's import path; direct execution as
+`python scripts/raster_rrt_connect.py` is not the supported invocation. The raster/RRT script reads
+the capture range configured in the script from
+`x3plus_perception_utils/x3plus_perception_utils/rgbd_pose_dataset/chrissek_tsdf`, starts a
+Meshcat server, and writes `trajectory_raster_rrt_connect.npz` to
+`x3plus_motion_planner/trajectory`. The DBSCAN/IRIS/GCS script reads its configured capture and
+writes `trajectory_export.npz`. Planning settings and capture selections are currently in the scripts.
+The `x3plus_drake_planner` directory is a Python package within the workspace `src`; it has no
+standalone ROS `package.xml`.
 
 Requires Drake (`[fill in: version]`) with the `manipulation` utilities, NumPy, OpenCV, Open3D,
 Matplotlib, SciPy and scikit-learn, plus `trimesh` and `coacd` for the TSDF path. The Drake model also

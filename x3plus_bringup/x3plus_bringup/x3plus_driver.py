@@ -107,7 +107,25 @@ class x3plusDriver(Node):
     def srv_arm_callback(self, request, response):
         """ Returns current arm servo angles via service. """
 
-        joints = self.car.get_uart_servo_angle_array()
+        servo_max_angles = (180, 180, 180, 180, 270, 180)
+        joints = []
+        for attempt in range(2):
+            joints = self.car.get_uart_servo_angle_array()
+            valid_reading = len(joints) == len(servo_max_angles) and all(
+                math.isfinite(float(angle)) and 0 <= angle <= max_angle
+                for angle, max_angle in zip(joints, servo_max_angles)
+            )
+            if valid_reading:
+                break
+            if attempt == 0:
+                self.get_logger().warning(
+                    "Invalid CurrentAngle reading from the servo controller; retrying."
+                )
+        else:
+            self.get_logger().warning(
+                "CurrentAngle retry also returned invalid servo angles."
+            )
+
         response.angles = [float(val) for val in joints]
         return response
 

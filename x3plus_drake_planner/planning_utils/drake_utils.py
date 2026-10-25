@@ -1,4 +1,6 @@
 
+"""Drake scene construction, collision checking, and trajectory utilities."""
+
 import time
 import numpy as np
 from pathlib import Path
@@ -38,6 +40,33 @@ def make_convex_shape(verts):
     return Convex(path)
 
 
+# -------------------------- EXPORT TRAJECTORY TO A FIXED-RATE NPZ FILE ---------------------------
+
+def export_trajectory(traj, filename=None, dt=0.02):
+    """
+    Sample and export a fixed rate Drake trajectory to a NPZ file.
+    """
+
+    if filename is None:
+        filename = (
+            Path(__file__).resolve().parents[2]
+            / "x3plus_motion_planner"
+            / "trajectory"
+            / "trajectory_export.npz"
+        )
+    filename = Path(filename)
+    filename.parent.mkdir(parents=True, exist_ok=True)
+
+    end_time = traj.end_time()
+    times = np.arange(0.0, end_time, dt)
+    if times.size == 0 or times[-1] < end_time:
+        times = np.append(times, end_time)
+    q_samples = np.array([traj.value(t).ravel() for t in times])
+
+    np.savez(filename, times=times, q=q_samples)
+    print(f"Saved trajectory to {filename}")
+
+
 # ----------------------------------------------- PART 1 ------------------------------------------------
 # -------------- BUILD X3PLUS + GRIPPER WITH COLLISION GEOMETRY AND SELF-COLLISION FILTERS --------------
 
@@ -57,7 +86,7 @@ def build_x3plus(obstacle_verts_list, meshcat):
         plane: MultibodyPlant associated with the RobotDiagram.
     """
 
-    SRC_DIR = Path(__file__).resolve().parents[1]
+    SRC_DIR = Path(__file__).resolve().parents[2]
     DESCRIPTION_DIR = SRC_DIR / "x3plus_description"
 
     # ---------- 1. Robot Diagram and Model Parsing ----------
