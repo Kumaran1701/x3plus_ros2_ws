@@ -1,179 +1,199 @@
 # `x3plus_drake_planner`
 
-Collision-aware arm approach planning for the Yahboom X3Plus. Built on Drake.
-It converts the `.npz` files from `rgbd_pose_dataset` into convex obstacles, builds a Drake model of the robot
-and the obstacles, grows a chain of Zero-Order Iterative Region Inflation by Semidefinite programming (IRIS-ZO) 
-towards a target point in the arm's C-space and uses graph-of-Convex-Sets (GCS) to find a optimized trajectory through the chain. The output is a sampled trajectory for the arm.
+Collision-aware arm motion planning for the Yahboom X3Plus, built on Drake. It turns recorded RGB-D
+captures into convex obstacles, builds a Drake model of the robot and those obstacles, finds a
+collision-free arm configuration that reaches a target point, and plans a trajectory to it in the
+arm's joint space. The output is a trajectory sampled every 0.02 s that the `x3plus_motion_planner`
+streams to the arm.
 
-The current scope is to plan a trajectory for the arm to a reach a pre-task pose from the perceived collision geometry. Contact, insertion or mobile-base motion are not covered yet. For the overall project context, see the
-[repository README](../README.md).
+The scope is an arm approach to a pre-task pose; contact, insertion and
+mobile-base motion are not covered. For the project overview, see the [repository README](../README.md).
 
 ## Pipeline
 
 ```mermaid
-flowchart LR
-    A[RGB-D capture] --> B[World point cloud]
-    B --> C[Planes + DBSCAN<br/>convex obstacles]
-    C --> D[Drake scene<br/>robot + obstacles]
-    D --> E[Target point]
-    E --> F[IRIS region chain]
-    F --> G[GCS trajectory]
-    G --> H[Meshcat + sampled NPZ]
-```
-
-## Stages and why they work this way
-
-**Collision geometry from the point cloud (`geometry_utils/`).** Using the `rgbd_pose_dataset` the 
-depth image is projected into the world frame using the stored intrinsics and camera pose. For any given capture, distances beyond 0.6 m are considered unreachable for the arm and not included in the collision geometry reconstruction. The remaining points are voxel-downsampled. Iterative RANSAC extracts the largest planes, and 
-DBSCAN splits each plane into planar patches to account for spatial separation between coplanar points. The RANSAC
-outliers and the noise from plane clustering go thorugh two more DBSCAN passes with different clustering parameters   (dense and sparse). Each cluster becomes a convex hull. 
-
-As an alternative, [`geometry_utils/plane_rasterization.py`](./geometry_utils/plane_rasterization.py) projects each RANSAC plane into a 2D raster, labels connected regions, and recursively splits sufficiently non-convex regions before building hulls. It also clusters supplied RANSAC outliers with primary DBSCAN. Call `process_complete_workspace_rasterization(significant_planes, outliers)` with the outputs of `geometry_utils.plane_segmentation.segment_planes`; it returns `(hulls, noise)`, where `hulls` contains plane and outlier meshes and `noise` is a separate Open3D point cloud of DBSCAN noise.
-
-[`planning_utils/rrt_connect_planner.py`](./planning_utils/rrt_connect_planner.py) provides a separate joint-space RRT-Connect planner. Given an initialized Drake plant, context, frames, collision checker, and target, use `find_goal_config(...)` to find a collision-free IK goal, then `plan_rrt_connect(...)` to get `(trajectory, info, shortcut_path, raw_path)`. It does not modify the IRIS/GCS planning flow.
-
-[`scripts/raster_rrt_connect.py`](./scripts/raster_rrt_connect.py) is an executable pipeline: it loads configured RGB-D capture(s), uses RANSAC plus rasterized plane hulls and primary DBSCAN outlier hulls for collision geometry, finds an IK goal for its manually defined `target_offset_point`, and plans with RRT-Connect. Remaining DBSCAN noise is reported separately and is not currently added as collision geometry. The output is saved as `trajectory_raster_rrt_connect.npz`.
-
-Convex hulls are used because Drake checks collision against convex shapes quickly and when the clusters are converted to convex hulls, they can err on the side of caution. Meaning, highly concave shapes can be filled in. 
-The alternative, TSDF fusion of multiple captures and convex decomposition using CoACD represents concave shapes more accurately. CoACD works by decomposing concave shape into convex segments by trading off accuracy with time vs near-instant for the DBSCAN pipleine. Since the armm only has to avoid the environment to reach the pre-task pose, the DBSCAN is the active pipeline currently.
-
-### Parameter choices for the multi-stage DBSCAN
-
-All distances are in metres. Every value follows from the 5 mm voxel size.
-
-| Stage | Radius / threshold | Min points | Reasoning |
-| --- | --- | --- | --- |
-| Voxel downsample | 0.005 | – | One representative point per occupied 5 mm cube, so neighbouring points on a surface sit about 5 mm apart |
-| RANSAC plane | 0.005 | – | Equal to the voxel size, so only points within about one voxel of a plane are inliers and the planes stay thin |
-| Plane patches, facing the camera | 0.007 | 6 | Slightly above the point spacing so neighbours link up; the count is a little below what a regular grid would give, because real captures have gaps |
-| Plane patches, edge-on | 0.010 | 4 | These surfaces are captured sparsely, so the radius is doubled and the count relaxed |
-| Outliers, dense pass | 0.007 | 7 | These points are not on a plane, so a higher count is needed before they are treated as one object |
-| Outliers, sparse pass | 0.010 | 3 | Recovers weakly captured regions from the dense pass's noise; whatever is left is dropped |
-
-A plane counts as edge-on when `|normal · [1, 0, 0]| < 0.2`, which assumes the camera looks along the world x-axis.
-
-**Drake scene (`planning_utils/drake_utils.py`).** The gripper is welded to `arm_link5`, and each convex obstacle is
-registered as collision and visual geometry. The robot can be welded into the scene at different pre-set poses (`[0.40, 0.10, 0.0]` m in the current script) and thereby region growth can be tested from different positions to the same target. Drake's `SceneGraphCollisionChecker` provides the collision queries. Self-collision is partially filtered adjacent link pairs and several other arm and base pairs are excluded, and the remaining pairs are still checked. Virtual actuators are added only to simulate Joint Space Control (JCS) but since the hardware is not torque controlled it is not used for planning.
-
-**Target (`scripts/multidb_iris_gcs.py`).** A target point is currently hand-picked rather than from the computed plane, because plane's index differs between runs and captures. A perception-based target (hole or object) selection will replace it. The target is a 3D position in world space and not the robot's target pose. Right now only the gripper's position is constrained and the `grip_joint_parent` is the point on the gripper that is controlled, not the fingertips.
-
-**Regions in a five-dimensional configuration space (`planning_utils/iris_informed.py`, `planning_utils/iris_helper.py`).** Only the
-five arm joints are free (see [`x3plus_description`](../x3plus_description/README.md) for why). Since the robot only has 5-DOF, and considering the manipualtion task to be infront of the robot, the first joint is limited to ±35° so that regions grow forward toward the target area instead of into irrelevant space. This will be upgraded later based on where the target is and then limiting the base joint accordingly. Regions are grown with IrisZo, which uses collision-checker queries and gives a probabilistic guarantee, controlled by `epsilon = 0.01` and `delta = 0.01`, unlike IrisNp with 100% guarantee.
-
-### The informed region chain (`planning_utils/iris_informed.py`)
-
-The aim is to connect the home configuration, q0, to the goal configuration,
-q_goal, with as few regions as possible. Instead of sampling the C-space
-randomly, the regions are seeded relative to the target at each *hop*. A *hop*
-is a C-space configuration seed between q0 and q_goal, such that growing a
-region at each hop leads to a chain of overlapping regions. The steps below
-describe the informed region-chain strategy.
-
-```mermaid
 flowchart TD
-    A[Grow home region] --> B{Direct IK and goal region<br/>connect to home?}
-    B -->|Yes| Z[Region chain complete]
-    B -->|No| C[Find next seed<br/>toward target]
-    C --> D{Bisection makes<br/>enough progress?}
-    D -->|No| E[Try spheroid candidates]
-    E --> F{Candidate found?}
-    F -->|No| X[Stop: boxed in]
-    F -->|Yes| G[Grow next region]
-    D -->|Yes| G
-    G --> H{Reached or connected<br/>to goal region?}
-    H -->|Yes| Z
-    H -->|No| C
+    A["RGB-D captures<br/>depth, intrinsics, camera pose"] --> B["Fused point cloud<br/>pointcloud_utils/preprocess.py"]
+    B --> C["RANSAC planes + outliers"]
+    C --> D1["Raster plane hulls + DBSCAN outlier hulls<br/>(default)"]
+    C --> D2["Multi-stage DBSCAN hulls<br/>(alternative)"]
+    D1 --> E["Drake scene + collision checker"]
+    D2 --> E
+    E --> F1["Goal by multi-start IK, then<br/>RRT-Connect + shortcut + spline<br/>(default)"]
+    E --> F2["IRIS region chain + GCS<br/>(alternative)"]
+    F1 --> G["Meshcat view + trajectory_export.npz"]
+    F2 --> G
 ```
 
-1. **Direct attempt.** IK to the target is solved with only the joint limit constraints. If it succeeds, a goal 
-   region is grown around the target and if it also overlaps with the home region then the chain is two regions long.
+**Why two planners.** The scene is rebuilt at every pose of the mobile base and because there is no CAD model the regions grown for one scene cannot be reused. For a single query, RRT-Connect is faster and simpler, taking
+under a second in earlier tests against several seconds for the IRIS chains. Therefore it is the default planner now.
+IRIS with GCS is kept as an alternative because it gives direct control over the trajectory cost
+(path energy and time) inside a corridor of regions. It can be more applicable when there are multiple target points to address from a single capture. Performance difference in such scenario might reveal how applicable each methods are. Rightnow that is not tested yet. 
 
-2. **Bisection.** From the gripper's current position, bisection along the straight line to the target
-   asks how far along that line the end effector can go while the configuration stays inside the
-   current region. Each of the 6 probes is an IK solve for one point on the line (±1 cm), constrained to
-   the region, collision-checked and warm-started from the best configuration so far. Feasible probes
-   move outward, infeasible ones move back. The result is a boundary of feasibility, not provably the
-   farthest point, because feasibility along the line need not be monotone.
-3. **Spheroid fallback.** If bisection gains less than 1 cm toward the target, the hop samples points in a
-   prolate spheroid whose foci are the current position and the target (up to 30% longer than the direct
-   path), keeps those at least 1 cm closer to the target, and tries IK for up to 15 of them, nearest to the
-   target first. The first feasible one is used. If none is, the planner stops with a "boxed in" error.
-4. **Growing the next region.** One IrisZo region is grown at the configuration found. Because that
-   configuration was solved inside the previous region, the two regions overlap by construction.
-5. **Finishing.** If the goal region is unknown, each hop first tries IK to the target from inside the
-   current region, and a success ends the chain. If it is known, the chain ends as soon as the new region
-   overlaps it.
+## Stages
 
-Defaults: up to 6 hops, 6 bisection probes, 15 fallback candidates, 1 cm required progress per hop and a
-1 cm position tolerance. A hop costs at most 22 IK solves (1 goal check, 6 probes, 15 candidates) and one
-IrisZo call. Typical result on the test scene: `[fill-in]`.
+**Point cloud (`pointcloud_utils/preprocess.py`).** Each capture's depth image is back-projected into the `odom` frame with its stored intrinsics and its recorded camera pose. Points farther than 0.6 m from the camera are dropped. Neither RRT and IRIS found no usable configurations farther out nor a fully extended arm is practical there. Each frame is downsampled to 5 mm voxels and a range of captures can be fused with a statistical filter (20 neighbours, standard
+deviation ratio 2) to remove stray points.
 
-Limits of the strategy: every hop must bring the gripper at least 1 cm closer to the target, and the chain
-never backtracks, so a route that first has to move away from the target to get around an obstacle is not
-found. The IK constrains position only, not orientation.
+**Collision geometry.** RANSAC (5 mm threshold, at least 1000 inliers) extracts the large planes.
 
-### Trajectory (`scripts/multidb_iris_gcs.py`)
+- *Raster method (default, `geometry_utils/plane_rasterization.py`).* Each plane is projected to a 2D
+  image with 5 mm pixels. A 3×3 opening and connected components separate physically distinct
+  patches and are labelled separately, so that no points are lost. Patches that
+  are not nearly convex (such as L and T shapes) are cut at their deepest notch, and every piece
+  becomes a convex hull. The RANSAC outliers get one DBSCAN pass. This method separates coplanar
+  objects and L-shaped patches that DBSCAN merges into one hull. The overall reconstruction looks better
+  than the multi-stage DBSCAN, but I have not measured it yet.
+- *Multi-stage DBSCAN (alternative, `geometry_utils/multidb.py`).* DBSCAN splits each plane into
+  patches, and two more passes cluster the outliers. It is used by the IRIS and GCS script, and its
+  parameters were tuned on single captures only and therefore not tuned again for fused captures.
+- *TSDF and CoACD (alternative, `geometry_utils/coacd.py`).* Fuses the captures into a TSDF and
+  decomposes the mesh into convex parts. It is more faithful on concave objects but much slower, so
+  it is not used for planning.
 
-GCS is used to build the trajectory from q0 to q_goal through the regions. Each region becomes a quadratic Bézier region with start, q0 and goal, q_goal as fixed points. The order of the Bézier curve determines the smoothness in the trajectory. GCS is used because it greatly complements the IRIS regions and provides direct control over the costs (path energy, time, velocity limits apply) so the shape, speed and timing of the trajecotry are optimized. Edges are added between every region in the chain so that GCS can choose an optimial exit and entry between regions. The trajectory can be visualized in meshcat and a `0.02 s` sampled version of the same with joint positions `q` in radians is exported into `trajectory_export.npz`. `x3plus_motion_planner` publishes this directly to the hardware.
+Hulls are used because Drake checks collisions against convex shapes quickly, and a hull only adds
+volume, which means the model can error on the side of caution. Concave objects are filled in. Points left as
+DBSCAN noise are dropped.
 
-## Scripts
+**Drake scene (`planning_utils/drake_utils.py`).** The gripper is welded to `arm_link5`, the robot is
+welded at a hand-set pose (`[0.40, 0.10, 0.0]` m in the current scripts, which also lets region and
+path planning be tested from different positions), and every hull is registered as a convex collision
+shape. Only the five arm joints are free (see [`x3plus_description`](../x3plus_description/README.md)),
+and the first joint is limited to ±35° so planning stays in front of the robot. Self-collision is
+partly filtered: adjacent link pairs and several arm and base pairs are excluded.
 
-| File | Role |
+**Target and goal.** The target is a hand-picked world coordinate in the script, because the order of
+the RANSAC planes differs between capturesat every run. A perception-selected target (a hole or an object) will
+replace it. It is a position only, so the gripper's orientation is unconstrained, and the point
+controlled is the `grip_joint_parent` frame, not the fingertips.
+
+### RRT-Connect (default, `planning_utils/rrt_connect_planner.py`)
+
+1. **Goal configuration.** `find_goal_config` solves IK from `q0` and from 30 random starts, to within
+   ±1 cm in x and z and ±5 mm in y, and keeps the collision-free solution closest to `q0`. It returns
+   `None` when none is found, which means the target is unreachable from this base position.
+2. **Search.** Bidirectional RRT-Connect in joint space, with a step of 0.25 rad and up to 5000
+   iterations, sampling inside the joint limits.
+3. **Smoothing.** 100 random shortcuts, then resampling (0.1 rad, then 0.025 rad) and a cubic spline
+   with continuous second derivative and zero end velocity.
+4. **Timing and validation.** The spline is timed at 50% of the URDF velocity limits (1 rad/s where
+   the URDF gives none) and checked for collisions at 400 sampled times. If every spline collides, it
+   falls back to piecewise-linear segments, which are checked the same way.
+
+### IRIS and GCS (alternative, `planning_utils/iris_informed.py`)
+
+Regions are grown with IrisZo, which uses only collision-checker queries and gives a probabilistic
+guarantee (`epsilon = 0.01`, `delta = 0.01`). The informed chain connects `q0` to the goal with as few
+regions as possible:
+
+1. Try IK straight to the target. If a region grown at the solution overlaps the home region, the
+   chain is two regions long.
+2. Otherwise, each hop bisects along the straight line to the target, solving region-constrained IK
+   at each of 6 probes. If a hop gains less than 1 cm, it tries up to 15 candidates sampled in a
+   prolate spheroid between the current position and the target.
+3. One region is grown at the best configuration found. Since that configuration was solved inside the
+   previous region, consecutive regions overlap by construction.
+4. The chain ends when a region overlaps the goal region (at most 6 hops).
+
+GCS then builds a trajectory through the chain, with each region as a quadratic Bézier region,
+edges between consecutive regions, and a cost of path energy plus time under the plant's velocity
+bounds. Limits: every hop must bring the gripper at least 1 cm closer to the target, and the chain
+never backtracks, so a route that first has to move away from the target is not found.
+
+## Timings
+
+Measured on the test scene (525 collision hulls):
+
+| Step | Time |
 | --- | --- |
-| `scripts/raster_rrt_connect.py` | Rasterized plane geometry and RRT-Connect planning |
-| `scripts/multidb_iris_gcs.py` | DBSCAN geometry, IRIS region chain, and GCS trajectory |
-| `scripts/tsdf_coacd.py` | Entry point for the TSDF/CoACD alternative |
-| `pointcloud_utils/preprocess.py` | RGB-D point-cloud loading, downsampling, and capture fusion |
-| `geometry_utils/plane_segmentation.py` | RANSAC plane extraction |
-| `geometry_utils/plane_rasterization.py` | Raster components and convex plane-patch generation |
-| `geometry_utils/multidb.py` | Multi-stage DBSCAN and convex collision geometry |
-| `geometry_utils/coacd.py` | TSDF fusion, segmentation, and CoACD convex parts |
-| `planning_utils/drake_utils.py` | Drake scene, collision checker, and trajectory export |
-| `planning_utils/rrt_connect_planner.py` | Joint-space RRT-Connect planner |
-| `planning_utils/iris_informed.py` | Task-space-guided IRIS region chain |
-| `planning_utils/iris_helper.py` | IRIS region growth and region-constrained IK helpers |
+| Parsing the robot URDFs | 18 to 20 s per scene build, independent of the obstacles; the 153 MB base meshes are the main suspect |
+| Collision checker, Drake's default 12 contexts | 4.7 s |
+| Collision checker, one context (enough for RRT-Connect) | 0.84 s (0.54 s with no obstacles) |
+| Goal IK and RRT-Connect planning | `[fill in]` (RRT-Connect under 1 s in earlier tests) |
 
-## Inputs and running
+Setup, not planning, dominates a visit, and simplifying the robot's collision meshes is the planned
+fix. IrisZo uses the checker's extra contexts to sample in parallel, so keep the default for the IRIS
+path.
+
+## Run
 
 ```bash
 cd src
-python -m x3plus_drake_planner.scripts.raster_rrt_connect
+python -m x3plus_drake_planner.scripts.raster_rrt_connect   # default: raster geometry + RRT-Connect
+python -m x3plus_drake_planner.scripts.multidb_iris_gcs     # alternative: DBSCAN geometry + IRIS + GCS
+python -m x3plus_drake_planner.scripts.tsdf_coacd           # alternative: TSDF and CoACD geometry
 ```
 
-Run the alternatives as modules from `src` as well:
+Run them as modules from `src`; running the files directly breaks the imports. The scripts read the
+configured capture range from `x3plus_perception_utils/x3plus_perception_utils/rgbd_pose_dataset/chrissek_tsdf`
+(currently one capture in the default script), start a Meshcat server, and write
+`trajectory_export.npz` (`times`, and joint positions `q` in radians) to
+`x3plus_motion_planner/trajectory`. Both planners write the same file, so the latest run is the one
+the robot executes. The geometry viewer opens an Open3D window, which has to be closed for the run to
+continue. Paths and planning settings are set in the scripts, not on the command line. This directory
+has no `package.xml`.
 
-```bash
-python -m x3plus_drake_planner.scripts.multidb_iris_gcs
-python -m x3plus_drake_planner.scripts.tsdf_coacd
-```
-
-Module execution ensures the package root is on Python's import path; direct execution as
-`python scripts/raster_rrt_connect.py` is not the supported invocation. The raster/RRT script reads
-the capture range configured in the script from
-`x3plus_perception_utils/x3plus_perception_utils/rgbd_pose_dataset/chrissek_tsdf`, starts a
-Meshcat server, and writes `trajectory_raster_rrt_connect.npz` to
-`x3plus_motion_planner/trajectory`. The DBSCAN/IRIS/GCS script reads its configured capture and
-writes `trajectory_export.npz`. Planning settings and capture selections are currently in the scripts.
-The `x3plus_drake_planner` directory is a Python package within the workspace `src`; it has no
-standalone ROS `package.xml`.
-
-Requires Drake (`[fill in: version]`) with the `manipulation` utilities, NumPy, OpenCV, Open3D,
+Requires Drake (`[fill in: version]`) with the `manipulation` package, NumPy, OpenCV, Open3D,
 Matplotlib, SciPy and scikit-learn, plus `trimesh` and `coacd` for the TSDF path. The Drake model also
 needs the large OBJ meshes described in the `x3plus_description` README.
 
 ## Status and known gaps
 
-- **The target is a hand-picked constant** (see above), so the geometry is perception-derived but the
-  goal is not yet.
-- **Planning uses a single frame of the strafe capture.** The multi-view fusion in the TSDF path is not
-  used by the active pipeline.
-- **Regions are probabilistic, and no clearance margin is applied yet.**
-- **Points classified as noise are dropped**, so very thin or sparsely captured obstacles may be missing
-  from the collision model.
-- **Timings:** `[fill-in]`.
+- **The target is a hand-picked constant,** so the geometry is perception-derived but the goal is not
+  yet.
+- **The DBSCAN and IRIS path plans from a single capture.** Fusing a range of captures is available on
+  the raster and RRT path, whose parameters were settled on it.
+- **No clearance margin is applied,** and IrisZo's guarantee is probabilistic, so a margin on the
+  collision checker is a sensible safeguard.
+- **Points classified as noise are dropped,** so very thin or sparsely captured obstacles may be
+  missing from the collision model.
 
 ## Planned
 
 - A perception-selected target (a hole or an object) in place of the constant.
-- Capturing in place at the task, with the strafe motion finishing there.
+- Capturing in place at the task, with the strafe finishing there.
 - A clearance margin on the collision checker.
+- Simplified robot collision meshes, to remove most of the setup time.
+
+## Reference
+
+**Raster geometry parameters.**
+
+| Step | Value | Why |
+| --- | --- | --- |
+| Pixel size | 5 mm (the voxel size) | At most one point per cell |
+| Opening | 3×3 | Cuts fringe up to about 1 cm; removed pixels are labelled separately |
+| Split | solidity below 0.92, notch at least 3 px, pieces at least 20 px, depth at most 6 | Removes L and T notches without over-fragmenting |
+| Hull | direct hull, then ±5 mm extrusion if the patch is flat, then a box | Handles flat and collinear patches |
+| Outliers | DBSCAN 0.007 and 7 points, one pass | Keeps non-planar objects |
+
+**Multi-stage DBSCAN parameters** (metres; every value follows from the 5 mm voxel size).
+
+| Stage | Radius | Min points | Reasoning |
+| --- | --- | --- | --- |
+| Voxel downsample | 0.005 | – | One point per 5 mm cube, so neighbours sit about 5 mm apart |
+| RANSAC plane | 0.005 | – | Equal to the voxel size, so planes stay thin |
+| Plane patches, facing the camera | 0.007 | 6 | Just above the point spacing; the count is below a regular grid's, since real captures have gaps |
+| Plane patches, edge-on | 0.010 | 4 | Sparsely captured, so the radius is doubled and the count relaxed |
+| Outliers, dense pass | 0.007 | 7 | Not on a plane, so more points are needed to form an object |
+| Outliers, sparse pass | 0.010 | 3 | Recovers weakly captured regions; the rest is dropped |
+
+A plane counts as edge-on when `|normal · [1, 0, 0]| < 0.2`, which assumes the camera looks along the
+world x-axis.
+
+## Scripts
+
+| File | Role |
+| --- | --- |
+| `scripts/raster_rrt_connect.py` | Default: raster geometry and RRT-Connect |
+| `scripts/multidb_iris_gcs.py` | DBSCAN geometry, IRIS region chain and GCS |
+| `scripts/tsdf_coacd.py` | Entry point for the TSDF and CoACD alternative |
+| `pointcloud_utils/preprocess.py` | Point-cloud loading, downsampling and fusion |
+| `geometry_utils/plane_segmentation.py` | RANSAC plane extraction |
+| `geometry_utils/plane_rasterization.py` | Raster components, splitting and plane hulls |
+| `geometry_utils/multidb.py` | Multi-stage DBSCAN and hulls |
+| `geometry_utils/coacd.py` | TSDF fusion, segmentation and CoACD parts |
+| `planning_utils/drake_utils.py` | Drake scene, collision checker and trajectory export |
+| `planning_utils/rrt_connect_planner.py` | Goal IK and RRT-Connect planner |
+| `planning_utils/iris_informed.py` | Task-space-guided IRIS region chain |
+| `planning_utils/iris_helper.py` | Region growth and region-constrained IK |

@@ -158,7 +158,7 @@ def main():
         workspace_dir
         / "x3plus_motion_planner"
         / "trajectory"
-        / "trajectory_raster_rrt_connect.npz"
+        / "trajectory_export.npz"
     )
     export_trajectory(trajectory, filename=trajectory_path, dt=0.02)
     print("\nRaster RRT-Connect planning complete.")
