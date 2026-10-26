@@ -62,7 +62,7 @@ class RGBDPoseRecorder(Node):
         # --- Parameters ---
         self.declare_parameter('world_frame', 'odom')
         self.declare_parameter('camera_frame', 'depth_camera_link')
-        self.declare_parameter('output_directory', os.path.join(pkg_path_perception, 'rgbd_pose_dataset/latest26Okb1'))
+        self.declare_parameter('output_directory', os.path.join(pkg_path_perception, 'rgbd_pose_dataset/latest26Okb2'))
         self.declare_parameter('max_captures', 0)               
         self.declare_parameter('min_translation_m_between_captures', 0.01) # 1cm
         self.declare_parameter('recording_enabled', True)       
