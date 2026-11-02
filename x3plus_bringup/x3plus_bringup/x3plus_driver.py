@@ -109,24 +109,35 @@ class x3plusDriver(Node):
 
         servo_max_angles = (180, 180, 180, 180, 270, 180)
         joints = []
+        valid_reading = False
         for attempt in range(2):
-            joints = self.car.get_uart_servo_angle_array()
+            raw_joints = self.car.get_uart_servo_angle_array()
+            try:
+                joints = [float(angle) for angle in raw_joints]
+            except (TypeError, ValueError, OverflowError):
+                joints = []
+
             valid_reading = len(joints) == len(servo_max_angles) and all(
-                math.isfinite(float(angle)) and 0 <= angle <= max_angle
+                math.isfinite(angle) and 0 <= angle <= max_angle
                 for angle, max_angle in zip(joints, servo_max_angles)
             )
             if valid_reading:
                 break
+            diagnostic = (
+                f"received {raw_joints!r}; expected 6 finite angles within "
+                f"servo limits {servo_max_angles}"
+            )
             if attempt == 0:
                 self.get_logger().warning(
-                    "Invalid CurrentAngle reading from the servo controller; retrying."
+                    "Invalid CurrentAngle reading from the servo controller; "
+                    f"retrying ({diagnostic})."
                 )
         else:
             self.get_logger().warning(
-                "CurrentAngle retry also returned invalid servo angles."
+                f"CurrentAngle retry also returned invalid servo angles ({diagnostic})."
             )
 
-        response.angles = [float(val) for val in joints]
+        response.angles = joints if valid_reading else []
         return response
 
     def trajectory_callback(self, msg):

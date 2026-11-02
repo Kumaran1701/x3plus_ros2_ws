@@ -219,8 +219,9 @@ class ArmTrajectoryController(Node):
             if not valid_servo_angles(measured_deg, 5):
                 self.feedback_failures += 1
                 self.get_logger().error(
-                    "CurrentAngle returned invalid arm positions; expected at least 5 "
-                    "finite angles within servo limits"
+                    "CurrentAngle returned invalid feedback "
+                    f"{measured_deg.tolist()}; expected at least 5 finite arm angles "
+                    "within servo limits"
                 )
             else:
                 desired_deg = drake_rad_to_servo_deg(desired_q)
