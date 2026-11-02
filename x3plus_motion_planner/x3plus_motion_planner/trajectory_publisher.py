@@ -43,12 +43,16 @@ class ArmTrajectoryController(Node):
         # Parameters
         self.declare_parameter("traj_file", str(traj_file))
         self.declare_parameter('control_hz', 50.0)
+        self.declare_parameter("time_scale", 2.0)
         self.declare_parameter("error_file", os.path.abspath("trajectory_error.csv"))
 
         # Get parameters
         self.traj_file = (self.get_parameter('traj_file').get_parameter_value().string_value)
         self.control_hz = (self.get_parameter('control_hz').get_parameter_value().double_value)
+        self.time_scale = self.get_parameter("time_scale").get_parameter_value().double_value
         self.error_file = self.get_parameter("error_file").get_parameter_value().string_value
+        if not np.isfinite(self.time_scale) or self.time_scale < 1.0:
+            raise ValueError("time_scale must be finite and at least 1.0")
 
         # Publisher for trajectory commands
         self.pub = self.create_publisher(ArmJoint, 'TrajectoryAngle', 10)
@@ -84,10 +88,15 @@ class ArmTrajectoryController(Node):
         if len(self.times) == 0:
             raise ValueError('Trajectory must contain at least one sample')
         
-        self.duration = self.times[-1]
+        self.trajectory_duration = self.times[-1]
+        self.execution_duration = self.trajectory_duration * self.time_scale
 
         self.get_logger().info(f'Trajectory points: {len(self.times)}')
-        self.get_logger().info(f'Trajectory duration: {self.duration:.3f} s')
+        self.get_logger().info(
+            f'Trajectory duration: {self.trajectory_duration:.3f} s; '
+            f'execution duration: {self.execution_duration:.3f} s '
+            f'(time_scale={self.time_scale:.2f})'
+        )
 
         # Trajectory state variables.
         self.start_time = None
@@ -130,14 +139,14 @@ class ArmTrajectoryController(Node):
 
             self.get_logger().info('Starting trajectory execution.')
 
-        # Real elapsed trajectory time
-        t = time.monotonic() - self.start_time
+        elapsed = time.monotonic() - self.start_time
+        trajectory_time = elapsed / self.time_scale
         
         # End of trajectory
-        if t >= self.duration:
+        if elapsed >= self.execution_duration:
 
             self.send_position(self.q[-1])
-            self.request_feedback(self.duration, self.q[-1])
+            self.request_feedback(self.trajectory_duration, self.q[-1])
 
             self.finished = True
             self.timer.cancel()
@@ -150,11 +159,11 @@ class ArmTrajectoryController(Node):
             return
   
         # Continuous q(t) 
-        q_des = self.evaluate_trajectory(t)
+        q_des = self.evaluate_trajectory(trajectory_time)
 
         # Send position
         self.send_position(q_des)
-        self.request_feedback(t, q_des)
+        self.request_feedback(trajectory_time, q_des)
 
 
     # --------------------------------- Send direct servo position -------------------------------
