@@ -75,6 +75,9 @@ to it over the requested time. But to stream a planned trajectory, the new topic
 stream a planned trajectory at a fixed rate. Since the timing comes from the planner's samples, and the
 controller's own interpolation was no longer needed.
 
+The `TrajectoryAngle` subscription keeps only the newest pending waypoint. This prevents a delayed
+callback from replaying a backlog of stale position commands.
+
 **Joint states.** The driver integrates wheel positions from the measured base velocity using
 mecanum kinematics. Arm angles are converted from servo degrees (centered on 90°) to radians, and
 the gripper's servo range (30–180) is mapped to the URDF range (0–90).

@@ -44,15 +44,19 @@ class ArmTrajectoryController(Node):
         self.declare_parameter("traj_file", str(traj_file))
         self.declare_parameter('control_hz', 50.0)
         self.declare_parameter("time_scale", 2.0)
+        self.declare_parameter("feedback_hz", 2.0)
         self.declare_parameter("error_file", os.path.abspath("trajectory_error.csv"))
 
         # Get parameters
         self.traj_file = (self.get_parameter('traj_file').get_parameter_value().string_value)
         self.control_hz = (self.get_parameter('control_hz').get_parameter_value().double_value)
         self.time_scale = self.get_parameter("time_scale").get_parameter_value().double_value
+        self.feedback_hz = self.get_parameter("feedback_hz").get_parameter_value().double_value
         self.error_file = self.get_parameter("error_file").get_parameter_value().string_value
         if not np.isfinite(self.time_scale) or self.time_scale < 1.0:
             raise ValueError("time_scale must be finite and at least 1.0")
+        if not np.isfinite(self.feedback_hz) or self.feedback_hz <= 0:
+            raise ValueError("feedback_hz must be finite and positive")
 
         # Publisher for trajectory commands
         self.pub = self.create_publisher(ArmJoint, 'TrajectoryAngle', 10)
@@ -102,7 +106,7 @@ class ArmTrajectoryController(Node):
         self.start_time = None
         self.finished = False
         self.pending_feedback_future = None
-        self.queued_feedback = None
+        self.last_feedback_request_time = None
         self.feedback_samples = []
         self.feedback_failures = 0
         self.feedback_saved = False
@@ -111,6 +115,7 @@ class ArmTrajectoryController(Node):
         # Fixed-rate controller
         self.timer = self.create_timer(1.0 / self.control_hz, self.control_loop)
         self.get_logger().info(f'Trajectory controller running at {self.control_hz:.1f} Hz')
+        self.get_logger().info(f'CurrentAngle feedback limited to {self.feedback_hz:.1f} Hz')
 
 
     # -------------------- Evaluate trajectory at time t (linear interpolation) --------------------
@@ -146,7 +151,7 @@ class ArmTrajectoryController(Node):
         if elapsed >= self.execution_duration:
 
             self.send_position(self.q[-1])
-            self.request_feedback(self.trajectory_duration, self.q[-1])
+            self.request_feedback(self.trajectory_duration, self.q[-1], force=True)
 
             self.finished = True
             self.timer.cancel()
@@ -183,11 +188,20 @@ class ArmTrajectoryController(Node):
 
     # ----------------------- Compare commanded and measured trajectory positions -------------------
 
-    def request_feedback(self, trajectory_time, desired_q):
+    def request_feedback(self, trajectory_time, desired_q, force=False):
         if self.pending_feedback_future is not None:
-            self.queued_feedback = (trajectory_time, desired_q.copy())
             return
 
+        now = time.monotonic()
+        feedback_period = 1.0 / self.feedback_hz
+        if (
+            not force
+            and self.last_feedback_request_time is not None
+            and now - self.last_feedback_request_time < feedback_period
+        ):
+            return
+
+        self.last_feedback_request_time = now
         future = self.current_client.call_async(RobotArmArray.Request())
         self.pending_feedback_future = future
         future.add_done_callback(
@@ -216,10 +230,6 @@ class ArmTrajectoryController(Node):
                 )
         finally:
             self.pending_feedback_future = None
-            if self.queued_feedback is not None:
-                queued_feedback = self.queued_feedback
-                self.queued_feedback = None
-                self.request_feedback(*queued_feedback)
 
     def save_feedback_report(self):
         if self.feedback_saved:

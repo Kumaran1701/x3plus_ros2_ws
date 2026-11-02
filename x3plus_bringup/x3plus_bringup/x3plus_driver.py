@@ -44,7 +44,7 @@ class x3plusDriver(Node):
         self.arm_trajectory_sub_ = self.create_subscription(ArmJoint,
                                                             'TrajectoryAngle',
                                                             self.trajectory_callback,
-                                                            10)
+                                                            1)
 
         # Publishers: sensors + wheel velocities + joint states
         self.voltage_pub_ = self.create_publisher(Float32, 'voltage', 10)

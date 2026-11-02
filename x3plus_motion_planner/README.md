@@ -42,6 +42,8 @@ interpolation by the ROSMASTER. The trajectory publisher runs at 50 Hz by defaul
 after sending the final sample. Its `time_scale` parameter defaults to `2.0`, replaying the same
 path over twice the planned duration. Values must be at least `1.0`; larger values slow playback
 further. For example, set `-p time_scale:=3.0` to run the path over three times its planned duration.
+`CurrentAngle` feedback is limited to 2 Hz by default to reduce serial and executor contention
+during playback; increase it with `-p feedback_hz:=5.0` if needed.
 
 **`NOTE:`** The servos provide position feedback, available through the
 `CurrentAngle` service. During playback, the publisher requests feedback
