@@ -39,8 +39,8 @@ the `CurrentAngle` service, and publishes an `x3plus_msgs/msg/ArmJoint` on
 `TrajectoryAngle` with `run_time = 0`. In the `x3plus_bringup/x3plus_driver.py`, this topic sends
 each waypoint directly to the controller without a separate timed
 interpolation by the ROSMASTER. The trajectory publisher runs at 50 Hz by default and shuts down
-after sending the final sample. Its `time_scale` parameter defaults to `1.25`, replaying the same
-path over 1.25 times the planned duration. Values must be at least `1.0`; larger values slow playback
+after sending the final sample. Its `time_scale` parameter defaults to `1.1`, replaying the same
+path over 1.1 times the planned duration. Values must be at least `1.0`; larger values slow playback
 further. For example, set `-p time_scale:=2.0` to run the path over twice its planned duration.
 In-motion `CurrentAngle` feedback is disabled by default because servo reads can return invalid
 values and contend with trajectory commands on the controller connection. The startup read is still
