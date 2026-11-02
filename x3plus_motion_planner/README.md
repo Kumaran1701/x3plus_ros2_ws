@@ -42,25 +42,23 @@ interpolation by the ROSMASTER. The trajectory publisher runs at 50 Hz by defaul
 after sending the final sample. Its `time_scale` parameter defaults to `1.5`, replaying the same
 path over 1.5 times the planned duration. Values must be at least `1.0`; larger values slow playback
 further. For example, set `-p time_scale:=2.0` to run the path over twice its planned duration.
-`CurrentAngle` feedback is limited to 2 Hz by default to reduce serial and executor contention
-during playback; increase it with `-p feedback_hz:=5.0` if needed.
+In-motion `CurrentAngle` feedback is disabled by default because servo reads can return invalid
+values and contend with trajectory commands on the controller connection. The startup read is still
+used to validate the current pose and preserve the gripper angle. Enable diagnostic feedback with
+`-p feedback_hz:=2.0`; this writes `trajectory_error.csv` but may affect playback and should be used
+only when needed.
 
-**`NOTE:`** The servos provide position feedback, available through the
-`CurrentAngle` service. During playback, the publisher requests feedback
-without blocking the command loop, compares each returned arm-angle reading
-with the desired trajectory position associated with that request, and saves
-the readings and errors to `trajectory_error.csv` in the current directory.
-Service requests are serialized, so the comparison sampling rate depends on
-the service response time and may be lower than the command rate. At completion,
-the publisher reports per-joint MAE, RMSE, and maximum absolute error in degrees.
-The CSV's signed error is measured servo angle minus desired servo angle;
-desired and measured positions are also included in radians. Set the
-`error_file` parameter to change the output path. This is monitoring only: it
-does not adjust commands or stop playback when an error is large. Confirm the
-arm's starting pose and servo mapping before
-running a trajectory. At startup the driver sets the arm to the default
-configuration which is always used by Drake as the initial configuration
-during trajectory planning.
+**`NOTE:`** The servos provide position feedback through the `CurrentAngle`
+service. In-motion feedback is disabled by default; when enabled with a positive
+`feedback_hz`, the publisher compares each returned reading with the desired
+position and saves results to `trajectory_error.csv`. The CSV's signed error is
+measured servo angle minus desired servo angle; desired and measured positions
+are also included in radians. Set the `error_file` parameter to change the
+output path. Feedback is diagnostic only: it does not adjust commands or stop
+playback when an error is large. Confirm the arm's starting pose and servo
+mapping before running a trajectory. At startup the driver sets the arm to the
+default configuration used by Drake as the initial configuration during
+trajectory planning.
 
 ## Hardware checks with `arm_safety_test.py`
 

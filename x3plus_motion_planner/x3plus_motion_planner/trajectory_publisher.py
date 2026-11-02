@@ -44,7 +44,7 @@ class ArmTrajectoryController(Node):
         self.declare_parameter("traj_file", str(traj_file))
         self.declare_parameter('control_hz', 50.0)
         self.declare_parameter("time_scale", 1.5)
-        self.declare_parameter("feedback_hz", 2.0)
+        self.declare_parameter("feedback_hz", 0.0)
         self.declare_parameter("error_file", os.path.abspath("trajectory_error.csv"))
 
         # Get parameters
@@ -55,8 +55,8 @@ class ArmTrajectoryController(Node):
         self.error_file = self.get_parameter("error_file").get_parameter_value().string_value
         if not np.isfinite(self.time_scale) or self.time_scale < 1.0:
             raise ValueError("time_scale must be finite and at least 1.0")
-        if not np.isfinite(self.feedback_hz) or self.feedback_hz <= 0:
-            raise ValueError("feedback_hz must be finite and positive")
+        if not np.isfinite(self.feedback_hz) or self.feedback_hz < 0:
+            raise ValueError("feedback_hz must be finite and non-negative")
 
         # Publisher for trajectory commands
         self.pub = self.create_publisher(ArmJoint, 'TrajectoryAngle', 10)
@@ -115,7 +115,12 @@ class ArmTrajectoryController(Node):
         # Fixed-rate controller
         self.timer = self.create_timer(1.0 / self.control_hz, self.control_loop)
         self.get_logger().info(f'Trajectory controller running at {self.control_hz:.1f} Hz')
-        self.get_logger().info(f'CurrentAngle feedback limited to {self.feedback_hz:.1f} Hz')
+        if self.feedback_hz == 0:
+            self.get_logger().info("In-motion CurrentAngle feedback is disabled")
+        else:
+            self.get_logger().info(
+                f'CurrentAngle feedback limited to {self.feedback_hz:.1f} Hz'
+            )
 
 
     # -------------------- Evaluate trajectory at time t (linear interpolation) --------------------
@@ -189,6 +194,8 @@ class ArmTrajectoryController(Node):
     # ----------------------- Compare commanded and measured trajectory positions -------------------
 
     def request_feedback(self, trajectory_time, desired_q, force=False):
+        if self.feedback_hz == 0:
+            return
         if self.pending_feedback_future is not None:
             return
 
@@ -236,6 +243,11 @@ class ArmTrajectoryController(Node):
         if self.feedback_saved:
             return
         self.feedback_saved = True
+        if self.feedback_hz == 0:
+            self.get_logger().info(
+                "Skipped trajectory feedback report because in-motion feedback is disabled."
+            )
+            return
 
         fieldnames = ["trajectory_time_s"]
         for joint in range(1, 6):
