@@ -43,7 +43,7 @@ class ArmTrajectoryController(Node):
         # Parameters
         self.declare_parameter("traj_file", str(traj_file))
         self.declare_parameter('control_hz', 50.0)
-        self.declare_parameter("time_scale", 2.0)
+        self.declare_parameter("time_scale", 1.5)
         self.declare_parameter("feedback_hz", 2.0)
         self.declare_parameter("error_file", os.path.abspath("trajectory_error.csv"))
 
