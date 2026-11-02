@@ -43,7 +43,8 @@ deviation ratio 2) to remove stray points.
   are not nearly convex (such as L and T shapes) are cut at their deepest notch, and every piece
   becomes a convex hull. The RANSAC outliers get one DBSCAN pass. This method separates coplanar
   objects and L-shaped patches that DBSCAN merges into one hull. The overall reconstruction looks better
-  than the multi-stage DBSCAN, but I have not measured it yet.
+  than the multi-stage DBSCAN, but I have not measured it yet. When RGB is available, each hull is
+  displayed in MeshCat using the mean RGB color of its source points.
 - *Multi-stage DBSCAN (alternative, `geometry_utils/multidb.py`).* DBSCAN splits each plane into
   patches, and two more passes cluster the outliers. It is used by the IRIS and GCS script, and its
   parameters were tuned on single captures only and therefore not tuned again for fused captures.

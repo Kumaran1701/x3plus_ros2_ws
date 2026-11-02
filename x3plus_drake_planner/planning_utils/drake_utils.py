@@ -70,13 +70,14 @@ def export_trajectory(traj, filename=None, dt=0.02):
 # ----------------------------------------------- PART 1 ------------------------------------------------
 # -------------- BUILD X3PLUS + GRIPPER WITH COLLISION GEOMETRY AND SELF-COLLISION FILTERS --------------
 
-def build_x3plus(obstacle_verts_list, meshcat):
+def build_x3plus(obstacle_verts_list, meshcat, obstacle_colors=None):
     """
     Build the Drake X3Plus + Gripper + perceived obstacle geometry into the Plant.
     
     Adds:
         - X3Plus robot with gripper.
         - Perceived convex obstacles from point cloud.
+        - Optional per-obstacle RGB colors for visualization.
         - Virtual joint actuators for the arm joints (for simulation).
         - Self-collision filters for robot links.
         - Meshcat visualization.
@@ -85,6 +86,18 @@ def build_x3plus(obstacle_verts_list, meshcat):
         robot_diagram: Drake RobotDiagram containing the complete scene.
         plane: MultibodyPlant associated with the RobotDiagram.
     """
+    if obstacle_colors is not None:
+        if len(obstacle_colors) != len(obstacle_verts_list):
+            raise ValueError("obstacle_colors must match obstacle_verts_list in length")
+        for color in obstacle_colors:
+            color = np.asarray(color, dtype=float)
+            if (
+                color.shape != (3,)
+                or not np.all(np.isfinite(color))
+                or np.any(color < 0)
+                or np.any(color > 1)
+            ):
+                raise ValueError("Each obstacle color must be a finite RGB value in [0, 1]")
 
     SRC_DIR = Path(__file__).resolve().parents[2]
     DESCRIPTION_DIR = SRC_DIR / "x3plus_description"
@@ -123,11 +136,16 @@ def build_x3plus(obstacle_verts_list, meshcat):
     for idx, verts in enumerate(obstacle_verts_list):
         shape_collision = make_convex_shape(verts)
         shape_visual = make_convex_shape(verts)
+        color = (
+            np.array([*obstacle_colors[idx], 0.5])
+            if obstacle_colors is not None
+            else np.array([0.9, 0.1, 0.1, 0.5])
+        )
     
         plant.RegisterCollisionGeometry(plant.world_body(), RigidTransform(), shape_collision,
                                         f"obstacle_{idx}_collision", ProximityProperties())
         plant.RegisterVisualGeometry(plant.world_body(), RigidTransform(), shape_visual,
-                                     f"obstacle_{idx}_visual", np.array([0.9, 0.1, 0.1, 0.5]))
+                                     f"obstacle_{idx}_visual", color)
         
     # ---------- 4. Add Joint Actuators (Virtual) ----------------------------
     # --- For Joint Space Control or Operational Space Control----------------

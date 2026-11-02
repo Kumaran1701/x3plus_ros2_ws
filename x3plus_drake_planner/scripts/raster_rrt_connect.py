@@ -45,7 +45,14 @@ def main():
     hull_meshes, noise = process_complete_workspace_rasterization(significant_planes,
                                                                   outliers=outliers)
 
-    obstacle_vertices = [np.asarray(mesh.vertices) for mesh in hull_meshes if len(mesh.vertices) >= 4]
+    obstacle_meshes = [mesh for mesh in hull_meshes if len(mesh.vertices) >= 4]
+    obstacle_vertices = [np.asarray(mesh.vertices) for mesh in obstacle_meshes]
+    obstacle_colors = [
+        np.mean(np.asarray(mesh.vertex_colors), axis=0)
+        if len(mesh.vertex_colors) > 0
+        else np.array([0.9, 0.1, 0.1])
+        for mesh in obstacle_meshes
+    ]
 
     if not obstacle_vertices:
         raise RuntimeError("Rasterization produced no usable collision hulls")
@@ -57,7 +64,9 @@ def main():
 
     meshcat = StartMeshcat()
 
-    robot_diagram, plant = build_x3plus(obstacle_vertices, meshcat)
+    robot_diagram, plant = build_x3plus(
+        obstacle_vertices, meshcat, obstacle_colors=obstacle_colors
+    )
     context = robot_diagram.CreateDefaultContext()
     plant_context = plant.GetMyMutableContextFromRoot(context)
 

@@ -26,12 +26,9 @@ def segment_planes(point_cloud, distance_threshold=0.005, ransac_n=3, num_iterat
         plane_index += 1
 
         inlier_point_cloud = remaining_cloud.select_by_index(inliers)
-        inlier_point_cloud.paint_uniform_color(np.random.rand(3))
-
         significant_planes.append((inlier_point_cloud, plane_model))
 
         remaining_cloud = remaining_cloud.select_by_index(inliers, invert=True)
 
     return significant_planes, remaining_cloud
-
 

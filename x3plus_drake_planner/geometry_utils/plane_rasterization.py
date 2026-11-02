@@ -1,10 +1,21 @@
-import copy
 import time
 
 import cv2
-import matplotlib.pyplot as plt
 import numpy as np
 import open3d as o3d
+
+
+def _mean_color(point_cloud, default_color):
+    """Return the mean RGB color of a point cloud, or its fallback if uncolored."""
+    colors = np.asarray(point_cloud.colors)
+    if len(colors) != len(point_cloud.points) or len(colors) == 0:
+        return default_color
+
+    colors = colors[np.all(np.isfinite(colors), axis=1)]
+    if len(colors) == 0:
+        return default_color
+
+    return np.clip(np.mean(colors, axis=0), 0.0, 1.0)
 
 
 def _components(mask):
@@ -281,11 +292,7 @@ def process_complete_workspace_rasterization(
         final_labels, component_count = refine_labels(final_labels)
         assigned_labels = final_labels[pixel_coords[:, 1], pixel_coords[:, 0]]
 
-        color_indices = (assigned_labels + plane_idx * 7) % 20
-        colors = plt.get_cmap("tab20")(color_indices / 20.0)[:, :3]
-        visual_cloud = copy.deepcopy(plane_cloud)
-        visual_cloud.colors = o3d.utility.Vector3dVector(colors)
-        all_processed_clouds.append(visual_cloud)
+        all_processed_clouds.append(plane_cloud)
 
         plane_hulls_count = 0
         processed_point_count = 0
@@ -298,7 +305,7 @@ def process_complete_workspace_rasterization(
             sub_cloud = plane_cloud.select_by_index(point_indices.tolist())
             hull = _convex_hull_for_patch(sub_cloud, plane_normal)
             hull.compute_vertex_normals()
-            hull.paint_uniform_color((1, 0, 0))
+            hull.paint_uniform_color(_mean_color(sub_cloud, (1, 0, 0)))
             all_workspace_hulls.append(hull)
             plane_hulls_count += 1
             total_hulls_generated += 1
@@ -306,7 +313,7 @@ def process_complete_workspace_rasterization(
         print(
             f"-> Plane {plane_idx + 1} processing complete in "
             f"{time.perf_counter() - plane_start:.3f}s. "
-            f"Generated {plane_hulls_count} clean red hulls."
+            f"Generated {plane_hulls_count} clean hulls."
         )
         print(f"Processed {processed_point_count} / {point_count} points")
 
@@ -361,7 +368,7 @@ def process_complete_workspace_rasterization(
                 hull.translate(center - extent / 2.0)
 
             hull.compute_vertex_normals()
-            hull.paint_uniform_color((0, 1, 0))
+            hull.paint_uniform_color(_mean_color(cluster_cloud, (0, 1, 0)))
             all_workspace_hulls.append(hull)
             outlier_hulls_generated += 1
             total_hulls_generated += 1
@@ -371,7 +378,7 @@ def process_complete_workspace_rasterization(
             noise = outliers.select_by_index(noise_indices.tolist())
             noise.paint_uniform_color((0.3, 0.3, 0.3))
 
-        print(f"Generated {outlier_hulls_generated} green outlier hulls")
+        print(f"Generated {outlier_hulls_generated} outlier hulls")
         print(f"Remaining DBSCAN noise points: {len(noise.points)}")
 
     print(
